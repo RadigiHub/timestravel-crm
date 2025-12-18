@@ -1,55 +1,89 @@
-"use client";
+import { loginAction } from "./actions";
 
-import { useState } from "react";
-import { supabaseBrowser } from "../../lib/supabase/client";
-
-export default function LoginPage() {
-  const supabase = supabaseBrowser();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [msg, setMsg] = useState("");
-
-  const signIn = async () => {
-    setMsg("");
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) setMsg(error.message);
-  };
+export default function LoginPage({
+  searchParams,
+}: {
+  searchParams?: { message?: string };
+}) {
+  const message = searchParams?.message;
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6">
-      <div className="w-full max-w-md rounded-2xl border p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold">Times Travel CRM</h1>
-        <p className="text-sm text-gray-600 mt-1">Login to continue</p>
+    <main style={{ minHeight: "100vh", display: "grid", placeItems: "center" }}>
+      <div
+        style={{
+          width: 420,
+          border: "1px solid #ddd",
+          borderRadius: 14,
+          padding: 22,
+          fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
+        }}
+      >
+        <h2 style={{ margin: 0 }}>Times Travel CRM</h2>
+        <p style={{ marginTop: 6, color: "#666" }}>Login to continue</p>
 
-        <div className="mt-6 space-y-3">
-          <input
-            className="w-full rounded-xl border p-3"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-
-          <input
-            className="w-full rounded-xl border p-3"
-            placeholder="Password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-
-          <button
-            onClick={signIn}
-            className="w-full rounded-xl bg-black text-white p-3"
+        {message ? (
+          <div
+            style={{
+              marginTop: 10,
+              marginBottom: 10,
+              padding: 10,
+              borderRadius: 10,
+              border: "1px solid #f5c2c2",
+              background: "#fff5f5",
+              color: "#b10000",
+              fontSize: 14,
+            }}
           >
-            Sign In
-          </button>
+            {message}
+          </div>
+        ) : null}
 
-          {msg && <p className="text-sm mt-2">{msg}</p>}
-        </div>
+        <form action={loginAction} style={{ marginTop: 12 }}>
+          <div style={{ display: "grid", gap: 10 }}>
+            <input
+              name="email"
+              type="email"
+              placeholder="Email"
+              required
+              style={{
+                height: 44,
+                borderRadius: 10,
+                border: "1px solid #ccc",
+                padding: "0 12px",
+                outline: "none",
+              }}
+            />
+            <input
+              name="password"
+              type="password"
+              placeholder="Password"
+              required
+              style={{
+                height: 44,
+                borderRadius: 10,
+                border: "1px solid #ccc",
+                padding: "0 12px",
+                outline: "none",
+              }}
+            />
+
+            <button
+              type="submit"
+              style={{
+                height: 46,
+                borderRadius: 12,
+                border: "1px solid #111",
+                background: "#000",
+                color: "#fff",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Sign In
+            </button>
+          </div>
+        </form>
       </div>
-    </div>
+    </main>
   );
 }
