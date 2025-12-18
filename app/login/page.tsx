@@ -1,3 +1,6 @@
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { loginAction } from "./actions";
 
 export default function LoginPage({
