@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { createLeadAction } from "../actions";
 
+type TripType = "oneway" | "return" | "multicity";
+
 export default function AddLeadForm() {
-  const [tripType, setTripType] = useState<"oneway" | "return" | "multicity">("return");
+  const [tripType, setTripType] = useState<TripType>("return");
 
   return (
     <form action={createLeadAction} className="flex flex-wrap items-center gap-3">
@@ -34,7 +36,7 @@ export default function AddLeadForm() {
       <select
         name="trip_type"
         value={tripType}
-        onChange={(e) => setTripType(e.target.value as any)}
+        onChange={(e) => setTripType(e.target.value as TripType)}
         className="h-11 w-[160px] rounded-xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-400"
       >
         <option value="return">Return</option>
