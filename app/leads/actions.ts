@@ -26,9 +26,8 @@ export async function createLeadAction(formData: FormData) {
 
   const depart_date_raw = String(formData.get("depart_date") || "").trim();
   const return_date_raw = String(formData.get("return_date") || "").trim();
-
-  const depart_date = depart_date_raw ? depart_date_raw : null;   // "YYYY-MM-DD"
-  const return_date = return_date_raw ? return_date_raw : null;   // "YYYY-MM-DD"
+  const depart_date = depart_date_raw ? depart_date_raw : null; // YYYY-MM-DD
+  const return_date = return_date_raw ? return_date_raw : null; // YYYY-MM-DD
 
   const adults = Number(formData.get("adults") || 1);
   const children = Number(formData.get("children") || 0);
@@ -36,7 +35,8 @@ export async function createLeadAction(formData: FormData) {
 
   const cabin_class = String(formData.get("cabin_class") || "economy").trim();
   const budget = String(formData.get("budget") || "").trim() || null;
-  const preferred_airline = String(formData.get("preferred_airline") || "").trim() || null;
+  const preferred_airline =
+    String(formData.get("preferred_airline") || "").trim() || null;
 
   const whatsapp = String(formData.get("whatsapp") || "").trim() || null;
   const notes = String(formData.get("notes") || "").trim() || null;
@@ -44,15 +44,17 @@ export async function createLeadAction(formData: FormData) {
   const follow_up_date_raw = String(formData.get("follow_up_date") || "").trim();
   const follow_up_date = follow_up_date_raw ? follow_up_date_raw : null;
 
-  // minimum validations
+  // validations (minimum)
   if (!full_name) redirect("/leads?message=Full name is required");
-  if (!destination) redirect("/leads?message=Destination is required");
   if (!departure) redirect("/leads?message=Departure is required");
+  if (!destination) redirect("/leads?message=Destination is required");
   if (!depart_date) redirect("/leads?message=Depart date is required");
   if (adults < 1) redirect("/leads?message=Adults must be at least 1");
 
+  // default status
   const status_id = "new";
 
+  // next position in that column
   const { data: last } = await supabase
     .from("leads")
     .select("position")
@@ -97,4 +99,59 @@ export async function createLeadAction(formData: FormData) {
   }
 
   revalidatePath("/leads");
+}
+
+export async function moveLeadAction(payload: {
+  leadId: string;
+  toStatusId: string;
+  toIndex: number;
+}) {
+  const supabase = await supabaseServer();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { ok: false, message: "Not logged in" };
+
+  const { leadId, toStatusId, toIndex } = payload;
+
+  // 1) update moved lead
+  const { error: updErr } = await supabase
+    .from("leads")
+    .update({
+      status_id: toStatusId,
+      position: toIndex,
+      last_activity_at: new Date().toISOString(),
+    })
+    .eq("id", leadId);
+
+  if (updErr) return { ok: false, message: updErr.message };
+
+  // 2) normalize positions in destination column
+  const { data: colLeads, error: colErr } = await supabase
+    .from("leads")
+    .select("id, position, updated_at")
+    .eq("status_id", toStatusId)
+    .order("position", { ascending: true })
+    .order("updated_at", { ascending: false });
+
+  if (colErr) return { ok: false, message: colErr.message };
+
+  const ids = (colLeads ?? []).map((x) => x.id);
+
+  // 3) rewrite positions
+  for (let i = 0; i < ids.length; i++) {
+    const { error } = await supabase.from("leads").update({ position: i }).eq("id", ids[i]);
+    if (error) return { ok: false, message: error.message };
+  }
+
+  // 4) optional activity log (agar table hai)
+  try {
+    await supabase.from("lead_activities").insert({
+      lead_id: leadId,
+      type: "status_change",
+      message: `Moved to ${toStatusId}`,
+      created_by: auth.user.id,
+    });
+  } catch {}
+
+  revalidatePath("/leads");
+  return { ok: true };
 }
