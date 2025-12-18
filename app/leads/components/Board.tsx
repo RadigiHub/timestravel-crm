@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  DndContext,
-  closestCenter,
-  DragEndEvent,
-  DragStartEvent,
-} from "@dnd-kit/core";
+import { DndContext, closestCenter, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
 import { useMemo, useState } from "react";
 import Column from "./Column";
@@ -28,12 +23,6 @@ type Lead = {
   status_id: string;
   position: number;
   priority: "hot" | "warm" | "cold";
-
-  // (optional) new fields — Board ko zaroorat nahi, but types safe rehte
-  departure?: string | null;
-  destination?: string | null;
-  depart_date?: string | null;
-  return_date?: string | null;
 };
 
 function groupByStatus(statuses: Status[], leads: Lead[]) {
@@ -57,11 +46,7 @@ export default function Board({
   initialLeads: Lead[];
 }) {
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [byStatus, setByStatus] = useState(() =>
-    groupByStatus(statuses, initialLeads)
-  );
-
-  const statusIds = useMemo(() => new Set(statuses.map((s) => s.id)), [statuses]);
+  const [byStatus, setByStatus] = useState(() => groupByStatus(statuses, initialLeads));
 
   const leadToStatus = useMemo(() => {
     const m: Record<string, string> = {};
@@ -71,8 +56,12 @@ export default function Board({
     return m;
   }, [byStatus]);
 
-  function findContainerByLeadId(leadId: string) {
-    return leadToStatus[leadId];
+  const statusIds = useMemo(() => new Set(statuses.map((s) => s.id)), [statuses]);
+
+  function findContainer(id: string) {
+    // id can be leadId OR statusId (dropping on empty column)
+    if (statusIds.has(id)) return id;
+    return leadToStatus[id];
   }
 
   function findIndex(statusId: string, leadId: string) {
@@ -88,63 +77,45 @@ export default function Board({
     setActiveId(null);
     if (!over) return;
 
-    const activeLeadId = String(active.id);
-    const overId = String(over.id);
+    const activeIdStr = String(active.id);
+    const overIdStr = String(over.id);
 
-    const fromStatus = findContainerByLeadId(activeLeadId);
-    if (!fromStatus) return;
+    const fromStatus = findContainer(activeIdStr);
+    const toStatus = findContainer(overIdStr) || fromStatus;
+    if (!fromStatus || !toStatus) return;
 
-    // ✅ allow dropping on column itself (overId might be a statusId)
-    const toStatus = statusIds.has(overId)
-      ? overId
-      : findContainerByLeadId(overId) || fromStatus;
-
-    if (!toStatus) return;
-
-    // SAME COLUMN reorder
-    if (fromStatus === toStatus) {
-      const oldIndex = findIndex(fromStatus, activeLeadId);
-
-      // if dropped on column itself, move to end
-      const newIndex = statusIds.has(overId)
-        ? (byStatus[toStatus]?.length ?? 0) - 1
-        : findIndex(toStatus, overId);
-
-      if (oldIndex === -1) return;
-      if (newIndex === -1 || oldIndex === newIndex) return;
+    // same column reorder (only when dropping on another lead)
+    if (fromStatus === toStatus && !statusIds.has(overIdStr)) {
+      const oldIndex = findIndex(fromStatus, activeIdStr);
+      const newIndex = findIndex(toStatus, overIdStr);
+      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
 
       setByStatus((prev) => ({
         ...prev,
-        [fromStatus]: arrayMove(prev[fromStatus], oldIndex, newIndex).map(
-          (l, idx) => ({ ...l, position: idx })
-        ),
+        [fromStatus]: arrayMove(prev[fromStatus], oldIndex, newIndex).map((l, idx) => ({
+          ...l,
+          position: idx,
+        })),
       }));
 
-      await moveLeadAction({
-        leadId: activeLeadId,
-        toStatusId: toStatus,
-        toIndex: newIndex,
-      });
+      await moveLeadAction({ leadId: activeIdStr, toStatusId: toStatus, toIndex: newIndex });
       return;
     }
 
-    // CROSS COLUMN move
+    // cross column OR drop on empty column
     const fromList = [...(byStatus[fromStatus] || [])];
     const toList = [...(byStatus[toStatus] || [])];
 
-    const movingIndex = fromList.findIndex((l) => l.id === activeLeadId);
+    const movingIndex = fromList.findIndex((l) => l.id === activeIdStr);
     if (movingIndex === -1) return;
 
     const movingLead = { ...fromList[movingIndex], status_id: toStatus };
     fromList.splice(movingIndex, 1);
 
-    // if dropped on a lead -> insert before it
-    // if dropped on column -> insert at end
-    const insertAt = statusIds.has(overId)
-      ? toList.length
-      : toList.findIndex((l) => l.id === overId);
-
+    // if dropped on column itself -> append end
+    const insertAt = statusIds.has(overIdStr) ? -1 : toList.findIndex((l) => l.id === overIdStr);
     const targetIndex = insertAt === -1 ? toList.length : insertAt;
+
     toList.splice(targetIndex, 0, movingLead);
 
     const normalize = (arr: Lead[]) => arr.map((l, idx) => ({ ...l, position: idx }));
@@ -155,22 +126,14 @@ export default function Board({
       [toStatus]: normalize(toList),
     }));
 
-    await moveLeadAction({
-      leadId: activeLeadId,
-      toStatusId: toStatus,
-      toIndex: targetIndex,
-    });
+    await moveLeadAction({ leadId: activeIdStr, toStatusId: toStatus, toIndex: targetIndex });
   };
 
   return (
     <div>
       <AddLeadForm />
 
-      <DndContext
-        collisionDetection={closestCenter}
-        onDragStart={onDragStart}
-        onDragEnd={onDragEnd}
-      >
+      <DndContext collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
           {statuses.map((s) => (
             <Column key={s.id} status={s} leads={byStatus[s.id] || []} />
