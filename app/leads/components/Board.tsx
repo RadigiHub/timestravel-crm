@@ -28,6 +28,12 @@ type Lead = {
   status_id: string;
   position: number;
   priority: "hot" | "warm" | "cold";
+
+  // (optional) new fields — Board ko zaroorat nahi, but types safe rehte
+  departure?: string | null;
+  destination?: string | null;
+  depart_date?: string | null;
+  return_date?: string | null;
 };
 
 function groupByStatus(statuses: Status[], leads: Lead[]) {
@@ -55,6 +61,8 @@ export default function Board({
     groupByStatus(statuses, initialLeads)
   );
 
+  const statusIds = useMemo(() => new Set(statuses.map((s) => s.id)), [statuses]);
+
   const leadToStatus = useMemo(() => {
     const m: Record<string, string> = {};
     Object.entries(byStatus).forEach(([sid, leads]) => {
@@ -63,7 +71,7 @@ export default function Board({
     return m;
   }, [byStatus]);
 
-  function findContainer(leadId: string) {
+  function findContainerByLeadId(leadId: string) {
     return leadToStatus[leadId];
   }
 
@@ -78,23 +86,32 @@ export default function Board({
   const onDragEnd = async (e: DragEndEvent) => {
     const { active, over } = e;
     setActiveId(null);
-
     if (!over) return;
 
     const activeLeadId = String(active.id);
-    const overLeadId = String(over.id);
+    const overId = String(over.id);
 
-    const fromStatus = findContainer(activeLeadId);
-    const toStatus = findContainer(overLeadId) || fromStatus;
+    const fromStatus = findContainerByLeadId(activeLeadId);
+    if (!fromStatus) return;
 
-    if (!fromStatus || !toStatus) return;
+    // ✅ allow dropping on column itself (overId might be a statusId)
+    const toStatus = statusIds.has(overId)
+      ? overId
+      : findContainerByLeadId(overId) || fromStatus;
 
-    // same column reorder
+    if (!toStatus) return;
+
+    // SAME COLUMN reorder
     if (fromStatus === toStatus) {
       const oldIndex = findIndex(fromStatus, activeLeadId);
-      const newIndex = findIndex(toStatus, overLeadId);
 
-      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+      // if dropped on column itself, move to end
+      const newIndex = statusIds.has(overId)
+        ? (byStatus[toStatus]?.length ?? 0) - 1
+        : findIndex(toStatus, overId);
+
+      if (oldIndex === -1) return;
+      if (newIndex === -1 || oldIndex === newIndex) return;
 
       setByStatus((prev) => ({
         ...prev,
@@ -103,11 +120,15 @@ export default function Board({
         ),
       }));
 
-      await moveLeadAction({ leadId: activeLeadId, toStatusId: toStatus, toIndex: newIndex });
+      await moveLeadAction({
+        leadId: activeLeadId,
+        toStatusId: toStatus,
+        toIndex: newIndex,
+      });
       return;
     }
 
-    // cross column move (drop over a lead)
+    // CROSS COLUMN move
     const fromList = [...(byStatus[fromStatus] || [])];
     const toList = [...(byStatus[toStatus] || [])];
 
@@ -117,9 +138,13 @@ export default function Board({
     const movingLead = { ...fromList[movingIndex], status_id: toStatus };
     fromList.splice(movingIndex, 1);
 
-    const insertAt = toList.findIndex((l) => l.id === overLeadId);
-    const targetIndex = insertAt === -1 ? toList.length : insertAt;
+    // if dropped on a lead -> insert before it
+    // if dropped on column -> insert at end
+    const insertAt = statusIds.has(overId)
+      ? toList.length
+      : toList.findIndex((l) => l.id === overId);
 
+    const targetIndex = insertAt === -1 ? toList.length : insertAt;
     toList.splice(targetIndex, 0, movingLead);
 
     const normalize = (arr: Lead[]) => arr.map((l, idx) => ({ ...l, position: idx }));
@@ -130,7 +155,11 @@ export default function Board({
       [toStatus]: normalize(toList),
     }));
 
-    await moveLeadAction({ leadId: activeLeadId, toStatusId: toStatus, toIndex: targetIndex });
+    await moveLeadAction({
+      leadId: activeLeadId,
+      toStatusId: toStatus,
+      toIndex: targetIndex,
+    });
   };
 
   return (
