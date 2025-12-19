@@ -160,3 +160,43 @@ export async function moveLeadAction(payload: {
   revalidatePath("/leads");
   return { ok: true };
 }
+export async function moveLeadAction(input: {
+  fromStatusId: string;
+  toStatusId: string;
+  fromOrderIds: string[];
+  toOrderIds: string[];
+}) {
+  "use server";
+
+  // IMPORTANT: yahan wohi supabase server client use karo jo createLeadAction me use ho raha hai.
+  // Example (most common):
+  // const supabase = createClient();
+
+  const supabase = await getSupabaseServerClient(); // 👈 agar tumhare actions.ts me yahi pattern hai to OK
+  // Agar tumhare file me createClient() use hota hai, to upar wali line ko createClient() se replace kar dena.
+
+  // 1) update FROM column positions
+  for (let i = 0; i < input.fromOrderIds.length; i++) {
+    const id = input.fromOrderIds[i];
+    const { error } = await supabase
+      .from("leads")
+      .update({ status_id: input.fromStatusId, position: i })
+      .eq("id", id);
+
+    if (error) throw new Error(error.message);
+  }
+
+  // 2) update TO column positions
+  for (let i = 0; i < input.toOrderIds.length; i++) {
+    const id = input.toOrderIds[i];
+    const { error } = await supabase
+      .from("leads")
+      .update({ status_id: input.toStatusId, position: i })
+      .eq("id", id);
+
+    if (error) throw new Error(error.message);
+  }
+
+  // Optional: refresh leads page cache
+  // revalidatePath("/leads");
+}
