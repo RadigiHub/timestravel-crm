@@ -130,7 +130,7 @@ export default function Board({
   };
 
   return (
-    <div>
+  <div className="mx-auto w-full max-w-[1200px] px-4 py-6">
       <AddLeadForm />
 
       <DndContext collisionDetection={closestCenter} onDragStart={onDragStart} onDragEnd={onDragEnd}>
