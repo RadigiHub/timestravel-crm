@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import AddLeadForm from "./AddLeadForm";
 
 export default function AddLeadModal({
@@ -10,48 +9,35 @@ export default function AddLeadModal({
   open: boolean;
   onClose: () => void;
 }) {
-  useEffect(() => {
-    if (!open) return;
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
-    };
-  }, [open, onClose]);
-
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
       <button
-        aria-label="Close modal"
-        className="absolute inset-0 bg-black/40"
+        type="button"
         onClick={onClose}
+        className="absolute inset-0 bg-black/40"
+        aria-label="Close modal"
       />
 
       {/* Modal */}
-      <div className="relative mx-auto mt-10 w-[min(980px,92vw)] rounded-3xl bg-white shadow-2xl">
+      <div className="relative z-10 w-[980px] max-w-[95vw] rounded-2xl bg-white shadow-xl">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4 border-b border-zinc-100 p-6">
+        <div className="flex items-center justify-between border-b border-zinc-100 px-6 py-4">
           <div>
-            <div className="text-xl font-semibold text-zinc-900">Add New Lead</div>
-            <div className="mt-1 text-sm text-zinc-500">
-              Fill travel details — we’ll keep it structured & clear.
+            <div className="text-lg font-semibold text-zinc-900">Add New Lead</div>
+            <div className="text-xs text-zinc-500">
+              Fill details clearly so follow-ups become easy.
             </div>
           </div>
 
           <button
+            type="button"
             onClick={onClose}
-            className="rounded-xl border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-100"
           >
-            ✕ Close
+            Close
           </button>
         </div>
 
