@@ -1,38 +1,38 @@
 "use client";
 
-import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { createLeadAction } from "../actions";
-
-type TripType = "oneway" | "return" | "multicity";
 
 export default function AddLeadForm({ onClose }: { onClose: () => void }) {
   const router = useRouter();
-  const [tripType, setTripType] = useState<TripType>("return");
-  const [isPending, startTransition] = useTransition();
+  const [tripType, setTripType] = useState<"oneway" | "return" | "multicity">("return");
+  const [pending, setPending] = useState(false);
 
-  async function action(formData: FormData): Promise<void> {
-    // server action (insert) + revalidatePath("/leads")
-    await createLeadAction(formData);
-
-    // close modal + refresh board
-    startTransition(() => {
+  async function action(formData: FormData) {
+    setPending(true);
+    try {
+      await createLeadAction(formData); // must return void
+      router.refresh(); // ✅ instantly re-fetch server data
       onClose();
-      router.refresh();
-    });
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
     <form action={action} className="px-6 py-5">
+      <div className="mb-4">
+        <div className="text-base font-semibold text-zinc-900">Add New Lead</div>
+        <div className="text-sm text-zinc-500">Fill details clearly so follow-ups become easy.</div>
+      </div>
+
       {/* Customer Info */}
       <div className="mb-5">
         <div className="mb-2 text-sm font-semibold text-zinc-900">Customer Info</div>
-
         <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-600">
-              Full Name <span className="text-red-500">*</span>
-            </label>
+            <label className="mb-1 block text-xs font-medium text-zinc-600">Full Name *</label>
             <input
               name="full_name"
               required
@@ -40,7 +40,6 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
               className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
             />
           </div>
-
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600">Phone</label>
             <input
@@ -48,14 +47,13 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
               placeholder="+44..."
               className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
             />
-            <div className="mt-1 text-[11px] text-zinc-400">Optional — but recommended for quick contact.</div>
+            <div className="mt-1 text-[11px] text-zinc-500">Optional — but recommended for quick contact.</div>
           </div>
-
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600">Email</label>
             <input
               name="email"
-              placeholder="name@email.com"
+              placeholder="email@example.com"
               className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
             />
           </div>
@@ -72,22 +70,18 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
             <select
               name="trip_type"
               value={tripType}
-              onChange={(e) => setTripType(e.target.value as TripType)}
+              onChange={(e) => setTripType(e.target.value as any)}
               className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
             >
               <option value="return">Return</option>
               <option value="oneway">One-way</option>
               <option value="multicity">Multi-city</option>
             </select>
-            <div className="mt-1 text-[11px] text-zinc-400">
-              Multi-city: we’ll add legs detail next step.
-            </div>
+            <div className="mt-1 text-[11px] text-zinc-500">Multi-city: we’ll add legs detail next step.</div>
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-600">
-              From <span className="text-red-500">*</span>
-            </label>
+            <label className="mb-1 block text-xs font-medium text-zinc-600">From *</label>
             <input
               name="departure"
               required
@@ -97,9 +91,7 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-600">
-              To <span className="text-red-500">*</span>
-            </label>
+            <label className="mb-1 block text-xs font-medium text-zinc-600">To *</label>
             <input
               name="destination"
               required
@@ -112,7 +104,7 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
             <label className="mb-1 block text-xs font-medium text-zinc-600">Preferred Airline</label>
             <input
               name="preferred_airline"
-              placeholder="e.g., Qatar"
+              placeholder="Qatar / BA"
               className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
             />
           </div>
@@ -120,9 +112,7 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
 
         <div className="mt-3 grid grid-cols-4 gap-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-600">
-              Depart Date <span className="text-red-500">*</span>
-            </label>
+            <label className="mb-1 block text-xs font-medium text-zinc-600">Depart Date *</label>
             <input
               type="date"
               name="depart_date"
@@ -163,22 +153,19 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
             <label className="mb-1 block text-xs font-medium text-zinc-600">Budget</label>
             <input
               name="budget"
-              placeholder="e.g., £900"
+              placeholder="£ / Rs"
               className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
             />
           </div>
         </div>
       </div>
 
-      {/* Pax & Priority */}
+      {/* Pax + Priority */}
       <div className="mb-5">
         <div className="mb-2 text-sm font-semibold text-zinc-900">Passengers & Priority</div>
-
         <div className="grid grid-cols-5 gap-3">
           <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-600">
-              Adults <span className="text-red-500">*</span>
-            </label>
+            <label className="mb-1 block text-xs font-medium text-zinc-600">Adults *</label>
             <input
               type="number"
               name="adults"
@@ -188,7 +175,6 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
               className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
             />
           </div>
-
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600">Children</label>
             <input
@@ -199,7 +185,6 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
               className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
             />
           </div>
-
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600">Infants</label>
             <input
@@ -210,7 +195,6 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
               className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
             />
           </div>
-
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600">Priority</label>
             <select
@@ -223,7 +207,6 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
               <option value="cold">Cold</option>
             </select>
           </div>
-
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600">WhatsApp</label>
             <input
@@ -235,11 +218,10 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {/* Follow-up */}
-      <div className="mb-6">
+      {/* Follow-up + Notes */}
+      <div className="mb-2">
         <div className="mb-2 text-sm font-semibold text-zinc-900">Follow-up</div>
-
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div>
             <label className="mb-1 block text-xs font-medium text-zinc-600">Follow-up Date</label>
             <input
@@ -247,42 +229,37 @@ export default function AddLeadForm({ onClose }: { onClose: () => void }) {
               name="follow_up_date"
               className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
             />
-            <div className="mt-1 text-[11px] text-zinc-400">Set a reminder date for callbacks.</div>
+            <div className="mt-1 text-[11px] text-zinc-500">Set a reminder date for callbacks.</div>
           </div>
-
-          <div>
+          <div className="col-span-2">
             <label className="mb-1 block text-xs font-medium text-zinc-600">Notes</label>
             <input
               name="notes"
-              placeholder="Any extra info (optional)"
+              placeholder="Any extra details..."
               className="h-11 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm outline-none focus:border-zinc-400"
             />
           </div>
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between border-t border-zinc-100 pt-4">
-        <div className="text-xs text-zinc-400">
+      <div className="mt-5 flex items-center justify-between border-t border-zinc-100 pt-4">
+        <div className="text-xs text-zinc-500">
           Tip: Phone + notes fill karoge to team follow-up fast ho jata hai.
         </div>
-
-        <div className="flex items-center gap-2">
+        <div className="flex gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="h-10 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium hover:bg-zinc-100"
-            disabled={isPending}
+            className="h-10 rounded-xl border border-zinc-200 bg-white px-4 text-sm font-medium hover:bg-zinc-50"
           >
             Cancel
           </button>
-
           <button
             type="submit"
+            disabled={pending}
             className="h-10 rounded-xl bg-black px-5 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-            disabled={isPending}
           >
-            {isPending ? "Saving..." : "Save Lead"}
+            {pending ? "Saving..." : "Save Lead"}
           </button>
         </div>
       </div>
