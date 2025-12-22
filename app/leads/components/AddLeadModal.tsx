@@ -57,7 +57,7 @@ export default function AddLeadModal({
 
         {/* Content */}
         <div className="p-6">
-          <AddLeadForm />
+          <AddLeadForm onClose={onClose} />
         </div>
       </div>
     </div>
