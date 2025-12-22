@@ -29,7 +29,7 @@ export async function createLeadAction(formData: FormData) {
   const full_name = String(formData.get("full_name") || "").trim();
   const phone = String(formData.get("phone") || "").trim() || null;
   const email = String(formData.get("email") || "").trim() || null;
-  const source = String(formData.get("source") || "web");
+  const source = String(formData.get("source") || "web").trim() || "web";
 
   /* ---------- Travel ---------- */
   const trip_type = String(formData.get("trip_type") || "return") as TripType;
@@ -50,7 +50,7 @@ export async function createLeadAction(formData: FormData) {
   const preferred_airline = String(formData.get("preferred_airline") || "").trim() || null;
   const budget = String(formData.get("budget") || "").trim() || null;
 
-  // DB column name is whatsapp_text
+  // DB column: whatsapp_text
   const whatsapp_text = String(formData.get("whatsapp") || "").trim() || null;
 
   const follow_up_date_raw = String(formData.get("follow_up_date") || "").trim();
@@ -59,16 +59,17 @@ export async function createLeadAction(formData: FormData) {
   const notes = String(formData.get("notes") || "").trim() || null;
 
   /* ---------- Validation ---------- */
-  if (!full_name) redirect("/leads?message=Full%20name%20is%20required");
-  if (!departure) redirect("/leads?message=Departure%20is%20required");
-  if (!destination) redirect("/leads?message=Destination%20is%20required");
-  if (!depart_date) redirect("/leads?message=Depart%20date%20is%20required");
-  if (trip_type === "return" && !return_date) redirect("/leads?message=Return%20date%20is%20required");
-  if (adults < 1) redirect("/leads?message=Adults%20must%20be%20at%20least%201");
+  if (!full_name) return { ok: false, message: "Full name is required" };
+  if (!departure) return { ok: false, message: "Departure is required" };
+  if (!destination) return { ok: false, message: "Destination is required" };
+  if (!depart_date) return { ok: false, message: "Depart date is required" };
+  if (trip_type === "return" && !return_date) return { ok: false, message: "Return date is required" };
+  if (adults < 1) return { ok: false, message: "Adults must be at least 1" };
 
-  /* ---------- Status & Position ---------- */
+  /* ---------- Default status ---------- */
   const status_id = "new";
 
+  /* ---------- Next position in column ---------- */
   const { data: last, error: lastErr } = await supabase
     .from("leads")
     .select("position")
@@ -77,9 +78,7 @@ export async function createLeadAction(formData: FormData) {
     .limit(1)
     .maybeSingle();
 
-  if (lastErr) {
-    redirect(`/leads?message=${encodeURIComponent(lastErr.message)}`);
-  }
+  if (lastErr) return { ok: false, message: lastErr.message };
 
   const nextPos = (last?.position ?? -1) + 1;
 
@@ -96,7 +95,6 @@ export async function createLeadAction(formData: FormData) {
     destination,
     depart_date,
     return_date,
-
     adults,
     children,
     infants,
@@ -104,25 +102,20 @@ export async function createLeadAction(formData: FormData) {
     preferred_airline,
     budget,
     whatsapp_text,
-
     follow_up_date,
     notes,
 
     status_id,
     position: nextPos,
-
     created_by: auth.user.id,
     assigned_to: auth.user.id,
     last_activity_at: new Date().toISOString(),
   });
 
-  if (error) {
-    redirect(`/leads?message=${encodeURIComponent(error.message)}`);
-  }
+  if (error) return { ok: false, message: error.message };
 
-  // refresh + redirect so UI updates and you "see" the result
   revalidatePath("/leads");
-  redirect("/leads?added=1");
+  return { ok: true };
 }
 
 /* ================= MOVE LEAD (DRAG & DROP) ================= */
@@ -135,32 +128,25 @@ export async function moveLeadAction(input: {
 }) {
   const supabase = await supabaseServer();
   const { data: auth } = await supabase.auth.getUser();
-
   if (!auth?.user) return { ok: false, message: "Not logged in" };
 
-  /* ---- FROM column reorder ---- */
+  // FROM column reorder
   for (let i = 0; i < input.fromOrderIds.length; i++) {
     const id = input.fromOrderIds[i];
     const { error } = await supabase
       .from("leads")
-      .update({
-        status_id: input.fromStatusId,
-        position: i,
-      })
+      .update({ status_id: input.fromStatusId, position: i, last_activity_at: new Date().toISOString() })
       .eq("id", id);
 
     if (error) return { ok: false, message: error.message };
   }
 
-  /* ---- TO column reorder ---- */
+  // TO column reorder
   for (let i = 0; i < input.toOrderIds.length; i++) {
     const id = input.toOrderIds[i];
     const { error } = await supabase
       .from("leads")
-      .update({
-        status_id: input.toStatusId,
-        position: i,
-      })
+      .update({ status_id: input.toStatusId, position: i, last_activity_at: new Date().toISOString() })
       .eq("id", id);
 
     if (error) return { ok: false, message: error.message };
