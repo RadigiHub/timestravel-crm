@@ -17,45 +17,15 @@ function toInt(v: FormDataEntryValue | null, fallback: number) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-async function ensureProfileExists(userId: string, email?: string | null) {
-  const supabase = await supabaseServer();
-
-  // If profile already exists, do nothing
-  const { data: existing, error: selErr } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (selErr) {
-    // If RLS blocks select, policies are not correct
-    throw new Error(`Profiles select blocked: ${selErr.message}`);
-  }
-
-  if (existing?.id) return;
-
-  // Create profile row (needs profiles_insert_own policy)
-  const { error: insErr } = await supabase.from("profiles").insert({
-    id: userId,
-    full_name: email ?? null,
-    role: "agent",
-  });
-
-  if (insErr) {
-    throw new Error(`Profile create error: ${insErr.message}`);
-  }
-}
-
 /* ================= CREATE LEAD ================= */
 
 export async function createLeadAction(formData: FormData): Promise<void> {
   const supabase = await supabaseServer();
-  const { data: auth } = await supabase.auth.getUser();
+  const { data: authData, error: authErr } = await supabase.auth.getUser();
 
-  if (!auth?.user) redirect("/login");
+  if (authErr || !authData?.user) redirect("/login");
 
-  // ensure profile exists so FK (assigned_to/created_by) never fails
-  await ensureProfileExists(auth.user.id, auth.user.email);
+  const user = authData.user;
 
   /* ---------- Basic ---------- */
   const full_name = String(formData.get("full_name") || "").trim();
@@ -64,8 +34,7 @@ export async function createLeadAction(formData: FormData): Promise<void> {
   const source = String(formData.get("source") || "web").trim() || "web";
 
   /* ---------- Travel ---------- */
-  const trip_type = String(formData.get("trip_type") || "return") as TripType;
-
+  const trip_type = (String(formData.get("trip_type") || "return") as TripType) ?? "return";
   const departure = String(formData.get("departure") || "").trim();
   const destination = String(formData.get("destination") || "").trim();
   const depart_date = String(formData.get("depart_date") || "").trim();
@@ -77,13 +46,15 @@ export async function createLeadAction(formData: FormData): Promise<void> {
   const children = toInt(formData.get("children"), 0);
   const infants = toInt(formData.get("infants"), 0);
 
-  const cabin_class = String(formData.get("cabin_class") || "economy") as CabinClass;
-  const priority = String(formData.get("priority") || "warm") as Priority;
+  const cabin_class =
+    (String(formData.get("cabin_class") || "economy") as CabinClass) ?? "economy";
+
+  const priority = (String(formData.get("priority") || "warm") as Priority) ?? "warm";
 
   const preferred_airline = String(formData.get("preferred_airline") || "").trim() || null;
   const budget = String(formData.get("budget") || "").trim() || null;
 
-  // DB column name: whatsapp_text (form field: whatsapp)
+  // form field name: "whatsapp"
   const whatsapp_text = String(formData.get("whatsapp") || "").trim() || null;
 
   const follow_up_date_raw = String(formData.get("follow_up_date") || "").trim();
@@ -110,7 +81,9 @@ export async function createLeadAction(formData: FormData): Promise<void> {
     .limit(1)
     .maybeSingle();
 
-  if (lastErr) redirect(`/leads?message=${encodeURIComponent(lastErr.message)}`);
+  if (lastErr) {
+    redirect(`/leads?message=${encodeURIComponent(lastErr.message)}`);
+  }
 
   const nextPos = (last?.position ?? -1) + 1;
 
@@ -140,8 +113,10 @@ export async function createLeadAction(formData: FormData): Promise<void> {
     status_id,
     position: nextPos,
 
-    created_by: auth.user.id,
-    assigned_to: auth.user.id,
+    // FK safe now because profile auto-created + RLS policies added
+    created_by: user.id,
+    assigned_to: user.id,
+
     last_activity_at: new Date().toISOString(),
   });
 
@@ -150,6 +125,9 @@ export async function createLeadAction(formData: FormData): Promise<void> {
   }
 
   revalidatePath("/leads");
+
+  // IMPORTANT: Force reload so new lead shows immediately
+  redirect("/leads");
 }
 
 /* ================= MOVE LEAD (DRAG & DROP) ================= */
@@ -159,10 +137,10 @@ export async function moveLeadAction(input: {
   toStatusId: string;
   fromOrderIds: string[];
   toOrderIds: string[];
-}): Promise<{ ok: true }> {
+}): Promise<{ ok: true } | never> {
   const supabase = await supabaseServer();
 
-  // FROM reorder
+  // FROM column reorder
   for (let i = 0; i < input.fromOrderIds.length; i++) {
     const id = input.fromOrderIds[i];
     const { error } = await supabase
@@ -173,7 +151,7 @@ export async function moveLeadAction(input: {
     if (error) throw new Error(error.message);
   }
 
-  // TO reorder
+  // TO column reorder
   for (let i = 0; i < input.toOrderIds.length; i++) {
     const id = input.toOrderIds[i];
     const { error } = await supabase
