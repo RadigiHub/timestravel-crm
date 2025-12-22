@@ -32,7 +32,7 @@ export async function createLeadAction(formData: FormData) {
   const source = String(formData.get("source") || "web");
 
   /* ---------- Travel ---------- */
-  const trip_type = (String(formData.get("trip_type") || "return") as TripType);
+  const trip_type = String(formData.get("trip_type") || "return") as TripType;
   const departure = String(formData.get("departure") || "").trim();
   const destination = String(formData.get("destination") || "").trim();
   const depart_date = String(formData.get("depart_date") || "").trim();
@@ -44,45 +44,42 @@ export async function createLeadAction(formData: FormData) {
   const children = toInt(formData.get("children"), 0);
   const infants = toInt(formData.get("infants"), 0);
 
-  const cabin_class = (String(
-    formData.get("cabin_class") || "economy"
-  ) as CabinClass);
+  const cabin_class = String(formData.get("cabin_class") || "economy") as CabinClass;
+  const priority = String(formData.get("priority") || "warm") as Priority;
 
-  const priority = (String(formData.get("priority") || "warm") as Priority);
-
-  const preferred_airline =
-    String(formData.get("preferred_airline") || "").trim() || null;
-
+  const preferred_airline = String(formData.get("preferred_airline") || "").trim() || null;
   const budget = String(formData.get("budget") || "").trim() || null;
 
-  const whatsapp_text =
-    String(formData.get("whatsapp") || "").trim() || null;
+  // DB column name is whatsapp_text
+  const whatsapp_text = String(formData.get("whatsapp") || "").trim() || null;
 
-  const follow_up_date_raw =
-    String(formData.get("follow_up_date") || "").trim();
+  const follow_up_date_raw = String(formData.get("follow_up_date") || "").trim();
   const follow_up_date = follow_up_date_raw ? follow_up_date_raw : null;
 
   const notes = String(formData.get("notes") || "").trim() || null;
 
   /* ---------- Validation ---------- */
-  if (!full_name) redirect("/leads?message=Full name is required");
-  if (!departure) redirect("/leads?message=Departure is required");
-  if (!destination) redirect("/leads?message=Destination is required");
-  if (!depart_date) redirect("/leads?message=Depart date is required");
-  if (trip_type === "return" && !return_date)
-    redirect("/leads?message=Return date is required");
-  if (adults < 1) redirect("/leads?message=Adults must be at least 1");
+  if (!full_name) redirect("/leads?message=Full%20name%20is%20required");
+  if (!departure) redirect("/leads?message=Departure%20is%20required");
+  if (!destination) redirect("/leads?message=Destination%20is%20required");
+  if (!depart_date) redirect("/leads?message=Depart%20date%20is%20required");
+  if (trip_type === "return" && !return_date) redirect("/leads?message=Return%20date%20is%20required");
+  if (adults < 1) redirect("/leads?message=Adults%20must%20be%20at%20least%201");
 
   /* ---------- Status & Position ---------- */
   const status_id = "new";
 
-  const { data: last } = await supabase
+  const { data: last, error: lastErr } = await supabase
     .from("leads")
     .select("position")
     .eq("status_id", status_id)
     .order("position", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (lastErr) {
+    redirect(`/leads?message=${encodeURIComponent(lastErr.message)}`);
+  }
 
   const nextPos = (last?.position ?? -1) + 1;
 
@@ -99,6 +96,7 @@ export async function createLeadAction(formData: FormData) {
     destination,
     depart_date,
     return_date,
+
     adults,
     children,
     infants,
@@ -106,11 +104,13 @@ export async function createLeadAction(formData: FormData) {
     preferred_airline,
     budget,
     whatsapp_text,
+
     follow_up_date,
     notes,
 
     status_id,
     position: nextPos,
+
     created_by: auth.user.id,
     assigned_to: auth.user.id,
     last_activity_at: new Date().toISOString(),
@@ -120,7 +120,9 @@ export async function createLeadAction(formData: FormData) {
     redirect(`/leads?message=${encodeURIComponent(error.message)}`);
   }
 
+  // refresh + redirect so UI updates and you "see" the result
   revalidatePath("/leads");
+  redirect("/leads?added=1");
 }
 
 /* ================= MOVE LEAD (DRAG & DROP) ================= */
@@ -132,6 +134,9 @@ export async function moveLeadAction(input: {
   toOrderIds: string[];
 }) {
   const supabase = await supabaseServer();
+  const { data: auth } = await supabase.auth.getUser();
+
+  if (!auth?.user) return { ok: false, message: "Not logged in" };
 
   /* ---- FROM column reorder ---- */
   for (let i = 0; i < input.fromOrderIds.length; i++) {
@@ -144,7 +149,7 @@ export async function moveLeadAction(input: {
       })
       .eq("id", id);
 
-    if (error) throw new Error(error.message);
+    if (error) return { ok: false, message: error.message };
   }
 
   /* ---- TO column reorder ---- */
@@ -158,7 +163,7 @@ export async function moveLeadAction(input: {
       })
       .eq("id", id);
 
-    if (error) throw new Error(error.message);
+    if (error) return { ok: false, message: error.message };
   }
 
   revalidatePath("/leads");
