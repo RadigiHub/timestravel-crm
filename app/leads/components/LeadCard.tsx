@@ -1,64 +1,77 @@
 "use client";
 
-import * as React from "react";
+import React from "react";
 import type { Lead } from "../types";
 
 type Props = {
   lead: Lead;
-
-  /**
-   * Drag handle props injected by SortableLeadCard
-   * so ONLY handle drags, not buttons/links.
-   */
-  dragHandleProps?: React.HTMLAttributes<HTMLButtonElement>;
-  dragHandleRef?: (node: HTMLButtonElement | null) => void;
+  isOverlay?: boolean;
+  // When rendered inside SortableLeadCard, we pass handle props
+  handleAttributes?: React.HTMLAttributes<HTMLButtonElement>;
+  handleListeners?: Record<string, any>;
 };
 
-export default function LeadCard({ lead, dragHandleProps, dragHandleRef }: Props) {
+export default function LeadCard({
+  lead,
+  isOverlay,
+  handleAttributes,
+  handleListeners,
+}: Props) {
   return (
-    <div className="rounded-lg border bg-white p-3 shadow-sm">
-      {/* Drag Handle (safe area) */}
+    <div
+      className={`rounded-2xl border bg-white p-3 shadow-sm ${
+        isOverlay ? "border-zinc-300" : "border-zinc-200"
+      }`}
+    >
+      {/* DRAG HANDLE (only this area drags) */}
       <button
-        ref={dragHandleRef}
         type="button"
-        {...dragHandleProps}
+        {...handleAttributes}
+        {...handleListeners}
         style={{
           touchAction: "none",
           WebkitUserSelect: "none",
           userSelect: "none",
         }}
-        className="mb-2 flex items-center gap-2 rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-50"
+        className="mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-50"
         aria-label="Drag lead"
         title="Drag"
       >
-        <span className="inline-block h-2 w-2 rounded-full bg-gray-300" />
+        <span className="inline-block h-2 w-2 rounded-full bg-zinc-300" />
         <span>Drag</span>
       </button>
 
-      {/* Card Content */}
       <div className="space-y-1">
-        <div className="text-sm font-semibold text-gray-900">{lead?.name ?? "Unnamed Lead"}</div>
-
-        <div className="text-xs text-gray-600">
-          {lead?.phone ? `📞 ${lead.phone}` : "📞 —"}
+        <div className="text-sm font-semibold text-zinc-900">
+          {lead.full_name ?? "—"}
         </div>
 
-        {lead?.email ? <div className="text-xs text-gray-600">✉️ {lead.email}</div> : null}
+        <div className="text-xs text-zinc-600">
+          {lead.phone ?? "No phone"}
+        </div>
 
-        {lead?.whatsapp_text ? (
-          <div className="mt-2 rounded-md bg-gray-50 p-2 text-xs text-gray-700">
-            {lead.whatsapp_text}
-          </div>
+        <div className="text-xs text-zinc-600">
+          {lead.email ?? "No email"}
+        </div>
+
+        {lead.source ? (
+          <div className="text-xs text-zinc-500">Source: {lead.source}</div>
         ) : null}
       </div>
 
-      {/* Buttons area (drag won't trigger from here) */}
-      <div className="mt-3 flex gap-2">
-        <button className="rounded-md bg-black px-3 py-1 text-xs text-white">
+      {/* Buttons safe (no drag listeners here) */}
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          className="rounded-lg border border-zinc-200 bg-white px-3 py-1 text-xs font-medium hover:bg-zinc-50"
+        >
           View
         </button>
-        <button className="rounded-md border px-3 py-1 text-xs">
-          Call
+        <button
+          type="button"
+          className="rounded-lg bg-black px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+        >
+          Action
         </button>
       </div>
     </div>
