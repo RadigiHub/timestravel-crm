@@ -1,39 +1,33 @@
 // app/leads/types.ts
 
-export type LeadId = string;
 export type LeadStatusId = string;
 
-/**
- * Some places in your app are using Status, some using LeadStatus.
- * We export BOTH (aliases) so TS never fights again.
- */
 export type LeadStatus = {
   id: LeadStatusId;
-  name: string; // required, because page.tsx error said Status missing "name"
+  label: string;
+  position: number;
   color?: string | null;
 };
 
-export type Status = LeadStatus; // alias for compatibility
-
-/**
- * Lead type: keep fields optional/nullable to match Supabase reality.
- * IMPORTANT: phone must allow undefined OR null because your API sometimes returns undefined.
- */
+// Keep this permissive to match Supabase reality (null/undefined can happen)
 export type Lead = {
-  id: LeadId;
+  id: string;
 
-  status_id: LeadStatusId | null;
+  full_name?: string | null;
 
-  name?: string | null;
-  phone?: string | null | undefined;
+  phone?: string | null; // can be undefined in fetched objects
   email?: string | null;
+  source?: string | null;
 
-  whatsapp_text?: string | null;
+  status_id?: LeadStatusId | null; // can be null in DB
+  position?: number | null;
+
+  priority?: "hot" | "warm" | "cold" | null;
 
   assigned_to?: string | null;
+
   created_at?: string | null;
   updated_at?: string | null;
 
-  // keep extra fields safe (if DB adds new cols, build won't break)
-  [key: string]: any;
+  whatsapp_text?: string | null;
 };
