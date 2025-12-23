@@ -1,47 +1,35 @@
 // app/leads/types.ts
+
 export type LeadStatusId = string;
 
-export type LeadPriority = "Hot" | "Warm" | "Cold" | string;
-
-export interface LeadStatus {
+export type LeadStatus = {
   id: LeadStatusId;
-  name: string;
+  label: string;
   color?: string | null;
-  order?: number | null;
-}
+};
 
-export interface Lead {
+// Make fields optional/nullable because DB/API may not return all columns
+export type Lead = {
   id: string;
 
   full_name: string;
-  phone: string | null; // IMPORTANT: undefined nahi
-  email: string | null;
+  phone?: string | null;       // allow undefined too
+  email?: string | null;
+  whatsapp?: string | null;
 
   source?: string | null;
 
-  status_id: LeadStatusId; // IMPORTANT: null nahi
-  priority?: LeadPriority | null;
+  // IMPORTANT: status_id can be null from DB; we will normalize in Board
+  status_id?: LeadStatusId | null;
 
-  // Trip fields (optional / nullable)
-  trip_type?: string | null;
-  from_location?: string | null;
-  to_location?: string | null;
-  depart_date?: string | null;
-  return_date?: string | null;
-  cabin?: string | null;
-  preferred_airline?: string | null;
-  budget?: string | null;
-
-  adults?: number | null;
-  children?: number | null;
-  infants?: number | null;
-
-  whatsapp?: string | null;
-  notes?: string | null;
-  follow_up_date?: string | null;
-
-  // common meta (agar DB me ho)
+  // optional fields (because your fetch may not include them yet)
   assigned_to?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
-}
+
+  // optional extra (your log showed whatsapp_text error)
+  whatsapp_text?: string | null;
+
+  // anything else
+  [key: string]: any;
+};
