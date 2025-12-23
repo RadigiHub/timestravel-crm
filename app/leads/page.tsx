@@ -1,29 +1,9 @@
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 import Board from "./components/Board";
+import type { Lead, LeadStatus } from "./types";
 
 export const dynamic = "force-dynamic";
-
-type Status = {
-  id: string;
-  label: string;
-  position: number;
-  color?: string | null;
-};
-
-type Lead = {
-  id: string;
-  full_name: string;
-  phone: string | null;
-  email: string | null;
-  source: string | null;
-  status_id: string;
-  position: number;
-  priority: "hot" | "warm" | "cold";
-  assigned_to: string | null;
-  created_at: string;
-  updated_at: string;
-};
 
 export default async function LeadsPage() {
   const supabase = await supabaseServer();
@@ -66,8 +46,12 @@ export default async function LeadsPage() {
       <div className="mx-auto max-w-[1400px] px-4 py-6">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-zinc-900">Leads Board</h1>
-            <p className="text-sm text-zinc-500">Drag & drop to move leads across stages.</p>
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-900">
+              Leads Board
+            </h1>
+            <p className="text-sm text-zinc-500">
+              Drag & drop to move leads across stages.
+            </p>
           </div>
 
           <a
@@ -80,7 +64,7 @@ export default async function LeadsPage() {
 
         <div className="mt-5">
           <Board
-            statuses={(statuses ?? []) as Status[]}
+            statuses={(statuses ?? []) as LeadStatus[]}
             initialLeads={(leads ?? []) as Lead[]}
           />
         </div>
