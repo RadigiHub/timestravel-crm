@@ -3,41 +3,43 @@
 import React from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import LeadCard from "./LeadCard";
-import type { Lead } from "./Board";
 
-export default function SortableLeadCard({ lead }: { lead: Lead }) {
+import LeadCard from "./LeadCard";
+import type { Lead } from "../types";
+
+type Props = {
+  lead: Lead;
+};
+
+export default function SortableLeadCard({ lead }: Props) {
   const {
     attributes,
     listeners,
     setNodeRef,
+    setActivatorNodeRef,
     transform,
     transition,
     isDragging,
-  } = useSortable({
-    id: lead.id,
-    data: { type: "lead", lead },
-  });
+  } = useSortable({ id: lead.id });
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.6 : 1,
-  };
-
-  // ✅ handleProps = sirf handle area pe apply hongay
-  const handleProps = {
-    ...attributes,
-    ...listeners,
-    style: {
-      touchAction: "none", // ✅ mobile drag fix
-      cursor: "grab",
-    } as React.CSSProperties,
+    // helps on mobile
+    touchAction: "manipulation",
   };
 
   return (
-    <div ref={setNodeRef} style={style}>
-      <LeadCard lead={lead} handleProps={handleProps} />
+    <div ref={setNodeRef} style={style} className={isDragging ? "opacity-50" : ""}>
+      <LeadCard
+        lead={lead}
+        dragging={isDragging}
+        dragHandle={{
+          ref: setActivatorNodeRef,
+          attributes,
+          listeners,
+        }}
+      />
     </div>
   );
 }
