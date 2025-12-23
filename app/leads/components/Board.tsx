@@ -1,173 +1,233 @@
 "use client";
 
-import * as React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   DndContext,
-  DragEndEvent,
   DragOverlay,
   PointerSensor,
   TouchSensor,
+  closestCorners,
   useSensor,
   useSensors,
-  closestCorners,
+  type DragEndEvent,
+  type DragOverEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
-import { arrayMove } from "@dnd-kit/sortable";
+import {
+  arrayMove,
+} from "@dnd-kit/sortable";
 
-import type { Lead, LeadStatus } from "../types";
-import { moveLeadAction } from "../actions";
 import Column from "./Column";
+import SortableLeadCard from "./SortableLeadCard";
 import LeadCard from "./LeadCard";
+import { moveLeadAction } from "../actions";
+import type { Lead, LeadStatus } from "../types";
+
+/** Normalize Lead object to avoid TS errors + null issues */
+function normalizeLead(l: Lead): Lead {
+  return {
+    ...l,
+    phone: l.phone ?? null,
+    email: l.email ?? null,
+    source: l.source ?? null,
+    assigned_to: l.assigned_to ?? null,
+    created_at: l.created_at ?? null,
+    updated_at: l.updated_at ?? null,
+    whatsapp_text: l.whatsapp_text ?? null,
+    status_id: l.status_id ?? null,
+    position: l.position ?? null,
+    priority: l.priority ?? null,
+    full_name: l.full_name ?? null,
+  };
+}
 
 type Props = {
   statuses: LeadStatus[];
   initialLeads: Lead[];
 };
 
-function normalizeLead(l: any): Lead {
-  return {
-    ...l,
-    phone: l?.phone ?? null,
-    whatsapp_text: l?.whatsapp_text ?? null,
-    assigned_to: l?.assigned_to ?? null,
-    created_at: l?.created_at ?? null,
-    updated_at: l?.updated_at ?? null,
-    status_id: l?.status_id ?? null,
-  };
-}
-
 export default function Board({ statuses, initialLeads }: Props) {
-  const [leads, setLeads] = React.useState<Lead[]>(() =>
-    (initialLeads ?? []).map(normalizeLead)
-  );
-
-  // If some lead has null status_id, we put it into first column (so TS + UI don't break)
-  const fallbackStatusId = statuses?.[0]?.id ?? null;
-
-  const leadsByStatus = React.useMemo(() => {
-    const map: Record<string, Lead[]> = {};
-    for (const s of statuses) map[s.id] = [];
-
-    for (const raw of leads) {
-      const l = normalizeLead(raw);
-      const sid = l.status_id ?? fallbackStatusId;
-      if (!sid) continue; // no statuses exist
-      map[sid] = map[sid] ?? [];
-      map[sid].push({ ...l, status_id: sid });
-    }
-    return map;
-  }, [leads, statuses, fallbackStatusId]);
-
-  // Order state (ids) per status
-  const [orderByStatus, setOrderByStatus] = React.useState<Record<string, string[]>>({});
-
-  React.useEffect(() => {
-    const next: Record<string, string[]> = {};
-    for (const s of statuses) next[s.id] = [];
-    for (const s of statuses) {
-      next[s.id] = (leadsByStatus[s.id] ?? []).map((l) => l.id);
-    }
-    setOrderByStatus(next);
-  }, [statuses, leadsByStatus]);
-
-  const [activeId, setActiveId] = React.useState<string | null>(null);
-
-  // Sensors: pointer + touch (with activation constraint so it doesn't "auto-drop")
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 8 } })
+    useSensor(TouchSensor, { activationConstraint: { delay: 140, tolerance: 6 } })
   );
 
-  const activeLead = React.useMemo(() => {
-    if (!activeId) return null;
-    return leads.find((l) => l.id === activeId) ?? null;
-  }, [activeId, leads]);
+  const [leads, setLeads] = useState<Lead[]>(() => initialLeads.map(normalizeLead));
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeFromStatusId, setActiveFromStatusId] = useState<string | null>(null);
 
-  const findStatusOfLead = (leadId: string) => {
-    for (const s of statuses) {
-      const ids = orderByStatus[s.id] ?? [];
-      if (ids.includes(leadId)) return s.id;
+  // Map leads by id for quick access
+  const leadsById = useMemo(() => {
+    const m = new Map<string, Lead>();
+    for (const l of leads) m.set(l.id, l);
+    return m;
+  }, [leads]);
+
+  // Order of ids per status
+  const [orderByStatus, setOrderByStatus] = useState<Record<string, string[]>>({});
+
+  // Build initial orderByStatus safely
+  useEffect(() => {
+    const normalized = initialLeads.map(normalizeLead);
+    setLeads(normalized);
+
+    const next: Record<string, string[]> = {};
+    for (const s of statuses) next[s.id] = [];
+
+    const fallbackStatusId = statuses[0]?.id ?? "unassigned";
+
+    for (const l of normalized) {
+      const sid = l.status_id ?? fallbackStatusId;
+      if (!next[sid]) next[sid] = [];
+      next[sid].push(l.id);
+    }
+
+    setOrderByStatus(next);
+  }, [initialLeads, statuses]);
+
+  function findContainerByLeadId(leadId: string): string | null {
+    for (const [statusId, ids] of Object.entries(orderByStatus)) {
+      if (ids.includes(leadId)) return statusId;
     }
     return null;
-  };
+  }
 
-  const onDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event;
+  function handleDragStart(e: DragStartEvent) {
+    const id = String(e.active.id);
+    setActiveId(id);
+
+    const fromStatusId =
+      (e.active.data.current?.statusId as string | undefined) ??
+      findContainerByLeadId(id);
+
+    setActiveFromStatusId(fromStatusId ?? null);
+  }
+
+  function handleDragOver(e: DragOverEvent) {
+    const active = e.active;
+    const over = e.over;
+    if (!over) return;
+
+    const activeLeadId = String(active.id);
+    const overId = String(over.id);
+
+    const fromStatusId =
+      (active.data.current?.statusId as string | undefined) ??
+      activeFromStatusId ??
+      findContainerByLeadId(activeLeadId);
+
+    // If hovering over a column container, its id will be statusId
+    const toStatusId = statuses.some((s) => s.id === overId)
+      ? overId
+      : findContainerByLeadId(overId);
+
+    if (!fromStatusId || !toStatusId) return;
+
+    if (fromStatusId === toStatusId) {
+      // Reorder within same column
+      const oldIndex = orderByStatus[fromStatusId]?.indexOf(activeLeadId) ?? -1;
+      const newIndex = orderByStatus[toStatusId]?.indexOf(overId) ?? -1;
+      if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
+
+      setOrderByStatus((prev) => ({
+        ...prev,
+        [fromStatusId]: arrayMove(prev[fromStatusId], oldIndex, newIndex),
+      }));
+      return;
+    }
+
+    // Move across columns
+    setOrderByStatus((prev) => {
+      const fromIds = [...(prev[fromStatusId] ?? [])];
+      const toIds = [...(prev[toStatusId] ?? [])];
+
+      const activeIndex = fromIds.indexOf(activeLeadId);
+      if (activeIndex === -1) return prev;
+
+      fromIds.splice(activeIndex, 1);
+
+      const overIndex = toIds.indexOf(overId);
+      const insertAt = overIndex === -1 ? toIds.length : overIndex;
+      toIds.splice(insertAt, 0, activeLeadId);
+
+      return {
+        ...prev,
+        [fromStatusId]: fromIds,
+        [toStatusId]: toIds,
+      };
+    });
+
+    // Update lead status in local state (optimistic)
+    setLeads((prev) =>
+      prev.map((l) =>
+        l.id === activeLeadId ? { ...l, status_id: toStatusId } : l
+      )
+    );
+
+    setActiveFromStatusId(toStatusId);
+  }
+
+  async function handleDragEnd(e: DragEndEvent) {
+    const active = e.active;
+    const over = e.over;
+
+    const leadId = String(active.id);
     setActiveId(null);
 
     if (!over) return;
 
-    const draggedId = String(active.id);
+    const fromStatusId =
+      (active.data.current?.statusId as string | undefined) ??
+      findContainerByLeadId(leadId);
+
     const overId = String(over.id);
-
-    const fromStatusId = findStatusOfLead(draggedId);
-    if (!fromStatusId) return;
-
-    // If dropped on a lead card, use that lead’s status; otherwise if dropped on column, use column id.
     const toStatusId = statuses.some((s) => s.id === overId)
       ? overId
-      : findStatusOfLead(overId) ?? fromStatusId;
+      : findContainerByLeadId(overId);
 
-    const fromIds = [...(orderByStatus[fromStatusId] ?? [])];
-    const toIds = fromStatusId === toStatusId ? fromIds : [...(orderByStatus[toStatusId] ?? [])];
+    if (!fromStatusId || !toStatusId) return;
 
-    const fromIndex = fromIds.indexOf(draggedId);
-    if (fromIndex === -1) return;
-
-    // remove from source
-    fromIds.splice(fromIndex, 1);
-
-    // insert into destination
-    if (fromStatusId === toStatusId) {
-      const overIndex = toIds.indexOf(overId);
-      const newIndex = overIndex === -1 ? toIds.length : overIndex;
-      const reordered = arrayMove(toIds, toIds.indexOf(draggedId), newIndex);
-      setOrderByStatus((prev) => ({ ...prev, [toStatusId]: reordered }));
-    } else {
-      const overIndex = toIds.indexOf(overId);
-      const insertIndex = overIndex === -1 ? toIds.length : overIndex;
-      toIds.splice(insertIndex, 0, draggedId);
-
-      setOrderByStatus((prev) => ({
-        ...prev,
-        [fromStatusId]: fromIds,
-        [toStatusId]: toIds,
-      }));
-
-      // also update lead's status in state
-      setLeads((prev) =>
-        prev.map((l) => (l.id === draggedId ? { ...l, status_id: toStatusId } : l))
-      );
-    }
-
-    // Persist to backend (your action expects these four arrays)
+    // Persist: your action expects these fields (as per TS error you showed)
     try {
       await moveLeadAction({
         fromStatusId,
         toStatusId,
-        fromOrderIds: fromIds,
-        toOrderIds: toIds,
+        fromOrderIds: orderByStatus[fromStatusId] ?? [],
+        toOrderIds: orderByStatus[toStatusId] ?? [],
       });
-    } catch (e) {
-      console.error("moveLeadAction failed:", e);
+    } catch (err) {
+      // If server fails, best is to refresh or revert (keeping simple here)
+      console.error("moveLeadAction failed", err);
     }
-  };
+  }
+
+  const activeLead = activeId ? leadsById.get(activeId) : null;
 
   return (
     <DndContext
       sensors={sensors}
       collisionDetection={closestCorners}
-      onDragStart={(e) => setActiveId(String(e.active.id))}
-      onDragEnd={onDragEnd}
-      onDragCancel={() => setActiveId(null)}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
     >
-      <div className="flex gap-4 overflow-x-auto pb-3">
+      <div className="flex gap-4 overflow-x-auto pb-2">
         {statuses.map((s) => (
-          <Column key={s.id} status={s} leads={leadsByStatus[s.id] ?? []} />
+          <Column
+            key={s.id}
+            status={s}
+            leadIds={orderByStatus[s.id] ?? []}
+            leadsById={leadsById}
+          />
         ))}
       </div>
 
       <DragOverlay>
-        {activeLead ? <LeadCard lead={activeLead} /> : null}
+        {activeLead ? (
+          <div className="w-[320px] opacity-95">
+            <LeadCard lead={activeLead} isOverlay />
+          </div>
+        ) : null}
       </DragOverlay>
     </DndContext>
   );
