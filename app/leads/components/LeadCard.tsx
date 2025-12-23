@@ -1,88 +1,106 @@
+// app/leads/components/LeadCard.tsx
 "use client";
 
 import React from "react";
 import type { Lead } from "../types";
 
-type DragHandleProps = {
-  ref: (node: HTMLElement | null) => void;
-  attributes: Record<string, any>;
-  listeners: Record<string, any>;
-};
+type DragHandleProps = React.HTMLAttributes<HTMLButtonElement>;
 
-type Props = {
+export default function LeadCard({
+  lead,
+  dragHandleProps,
+}: {
   lead: Lead;
-  dragging?: boolean;
-  dragHandle?: DragHandleProps;
-};
+  dragHandleProps?: DragHandleProps;
+}) {
+  const priorityLabel = (lead.priority ?? "").toString().toUpperCase();
 
-export default function LeadCard({ lead, dragging, dragHandle }: Props) {
   return (
-    <div
-      className={[
-        "rounded-xl border bg-white shadow-sm",
-        "p-3",
-        dragging ? "ring-2 ring-black/10" : "",
-      ].join(" ")}
-    >
-      {/* ✅ Drag Handle (safe area) */}
-      <div
-        className="mb-2 flex items-center justify-between gap-2"
-        style={{ touchAction: "none" }}
+    <div className="rounded-xl border bg-white p-3 shadow-sm">
+      {/* DRAG HANDLE (only this area drags) */}
+      <button
+        type="button"
+        {...dragHandleProps}
+        className="mb-2 flex w-full items-center justify-between rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-50"
+        style={{
+          touchAction: "none",
+          WebkitUserSelect: "none",
+          userSelect: "none",
+        }}
+        aria-label="Drag lead"
+        title="Drag"
       >
-        <div
-          className="flex items-center gap-2"
-          {...(dragHandle?.attributes ?? {})}
-          {...(dragHandle?.listeners ?? {})}
-          ref={dragHandle?.ref as any}
-          style={{
-            cursor: "grab",
-            touchAction: "none",
-            userSelect: "none",
-            WebkitUserSelect: "none",
-          }}
-          className="flex items-center gap-2 rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-50"
-        >
+        <span className="flex items-center gap-2">
           <span className="inline-block h-2 w-2 rounded-full bg-gray-300" />
-          <span>Drag</span>
+          Drag
+        </span>
+        {priorityLabel ? (
+          <span className="rounded-full border px-2 py-0.5 text-[10px]">
+            {priorityLabel}
+          </span>
+        ) : null}
+      </button>
+
+      {/* CONTENT */}
+      <div className="space-y-2">
+        <div className="font-semibold">{lead.full_name}</div>
+
+        <div className="text-xs text-gray-600 space-y-1">
+          {lead.phone ? <div>📞 {lead.phone}</div> : null}
+          {lead.email ? <div>✉️ {lead.email}</div> : null}
         </div>
 
-        {/* right side small meta */}
-        <div className="text-xs text-gray-400">ID: {lead.id.slice(0, 5)}</div>
-      </div>
+        {(lead.from || lead.to) && (
+          <div className="rounded-lg bg-gray-50 p-2 text-xs">
+            <div className="font-medium">
+              {lead.from ?? "—"} → {lead.to ?? "—"}
+            </div>
+            <div className="mt-1 text-gray-600">
+              {lead.trip_type ?? ""}{" "}
+              {lead.cabin ? `• ${lead.cabin}` : ""}{" "}
+              {lead.budget ? `• Budget: ${lead.budget}` : ""}
+            </div>
+          </div>
+        )}
 
-      {/* Content */}
-      <div className="font-semibold text-sm">{lead.full_name}</div>
+        {lead.follow_up_date ? (
+          <div className="text-xs text-gray-600">
+            ⏰ Follow-up: {lead.follow_up_date}
+          </div>
+        ) : null}
 
-      <div className="mt-1 space-y-1 text-sm text-gray-600">
-        {lead.phone ? <div>📞 {lead.phone}</div> : null}
-        {lead.email ? <div>✉️ {lead.email}</div> : null}
-        {lead.source ? <div className="text-xs text-gray-400">Source: {lead.source}</div> : null}
-      </div>
+        {lead.notes ? (
+          <div className="text-xs text-gray-700">
+            <span className="font-medium">Notes:</span> {lead.notes}
+          </div>
+        ) : null}
 
-      {/* Actions (safe - not draggable) */}
-      <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-50"
-          onClick={() => {
-            if (!lead.phone) return;
-            window.open(`tel:${lead.phone}`, "_self");
-          }}
-        >
-          Call
-        </button>
+        {/* Actions (safe - no dragging here) */}
+        <div className="mt-2 flex flex-wrap gap-2">
+          {lead.phone ? (
+            <a
+              className="rounded-lg border px-3 py-1 text-xs hover:bg-gray-50"
+              href={`tel:${lead.phone}`}
+            >
+              Call
+            </a>
+          ) : null}
 
-        <button
-          type="button"
-          className="rounded-lg border px-3 py-1 text-sm hover:bg-gray-50"
-          onClick={() => {
-            const wa = lead.phone?.replace(/[^\d+]/g, "") ?? "";
-            if (!wa) return;
-            window.open(`https://wa.me/${wa}`, "_blank");
-          }}
-        >
-          WhatsApp
-        </button>
+          {lead.whatsapp ? (
+            <a
+              className="rounded-lg border px-3 py-1 text-xs hover:bg-gray-50"
+              href={`https://wa.me/${lead.whatsapp.replace(/\D/g, "")}${
+                lead.whatsapp_text
+                  ? `?text=${encodeURIComponent(lead.whatsapp_text)}`
+                  : ""
+              }`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              WhatsApp
+            </a>
+          ) : null}
+        </div>
       </div>
     </div>
   );
