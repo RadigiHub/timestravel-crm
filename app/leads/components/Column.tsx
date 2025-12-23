@@ -1,44 +1,57 @@
-// app/leads/components/Column.tsx
 "use client";
 
-import React from "react";
+import * as React from "react";
+import { useDroppable } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+
 import type { Lead, LeadStatus } from "../types";
 import SortableLeadCard from "./SortableLeadCard";
 
-export default function Column({
-  status,
-  leads,
-  orderIds,
-}: {
+type Props = {
   status: LeadStatus;
   leads: Lead[];
-  orderIds: string[];
-}) {
-  // Ensure rendering follows orderIds
-  const map = new Map(leads.map((l) => [l.id, l]));
-  const orderedLeads = orderIds.map((id) => map.get(id)).filter(Boolean) as Lead[];
+  orderedIds: string[];
+};
+
+export default function Column({ status, leads, orderedIds }: Props) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: status.id,
+    data: { type: "column", statusId: status.id },
+  });
+
+  const leadsById = React.useMemo(() => {
+    const m: Record<string, Lead> = {};
+    for (const l of leads) m[l.id] = l;
+    return m;
+  }, [leads]);
+
+  const title = status.name ?? status.id;
 
   return (
-    <div className="w-[360px] shrink-0 rounded-2xl border bg-white p-3">
+    <div className="min-w-[320px] rounded-2xl border bg-gray-50 p-3">
       <div className="mb-3 flex items-center justify-between">
-        <div className="font-semibold">{status.name}</div>
-        <div className="rounded-full bg-gray-100 px-2 py-0.5 text-xs">
-          {orderedLeads.length}
-        </div>
+        <div className="font-semibold">{title}</div>
+        <span className="rounded-full bg-white px-2 py-0.5 text-xs text-gray-600">
+          {orderedIds.length}
+        </span>
       </div>
 
-      <SortableContext items={orderIds} strategy={verticalListSortingStrategy}>
-        <div className="space-y-3">
-          {orderedLeads.length === 0 ? (
-            <div className="rounded-lg border border-dashed p-4 text-center text-xs text-gray-500">
-              Drop leads here
-            </div>
-          ) : (
-            orderedLeads.map((l) => <SortableLeadCard key={l.id} lead={l} />)
-          )}
-        </div>
-      </SortableContext>
+      <div
+        ref={setNodeRef}
+        className={`min-h-[520px] rounded-xl border bg-white p-2 ${
+          isOver ? "ring-2 ring-black/10" : ""
+        }`}
+      >
+        <SortableContext items={orderedIds} strategy={verticalListSortingStrategy}>
+          <div className="space-y-2">
+            {orderedIds.map((id) => {
+              const lead = leadsById[id];
+              if (!lead) return null;
+              return <SortableLeadCard key={id} lead={lead} statusId={status.id} />;
+            })}
+          </div>
+        </SortableContext>
+      </div>
     </div>
   );
 }
