@@ -4,32 +4,45 @@ export type LeadStatusId = string;
 
 export type LeadStatus = {
   id: LeadStatusId;
-  label: string;
+  name: string;
   color?: string | null;
+  order?: number | null;
 };
 
-// Make fields optional/nullable because DB/API may not return all columns
+export type LeadPriority = "hot" | "warm" | "cold" | string;
+
 export type Lead = {
   id: string;
 
   full_name: string;
-  phone?: string | null;       // allow undefined too
-  email?: string | null;
-  whatsapp?: string | null;
-
+  phone: string | null; // IMPORTANT: no undefined, only string|null
+  email: string | null;
   source?: string | null;
 
-  // IMPORTANT: status_id can be null from DB; we will normalize in Board
-  status_id?: LeadStatusId | null;
+  status_id: LeadStatusId | null; // DB can be null
+  priority?: LeadPriority | null;
 
-  // optional fields (because your fetch may not include them yet)
-  assigned_to?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
+  from?: string | null;
+  to?: string | null;
+  trip_type?: string | null;
+  depart_date?: string | null;
+  return_date?: string | null;
+  cabin?: string | null;
+  budget?: string | null;
+  preferred_airline?: string | null;
 
-  // optional extra (your log showed whatsapp_text error)
+  adults?: number | null;
+  children?: number | null;
+  infants?: number | null;
+
+  whatsapp?: string | null;
   whatsapp_text?: string | null;
 
-  // anything else
-  [key: string]: any;
+  notes?: string | null;
+  follow_up_date?: string | null;
+
+  assigned_to?: string | null;
+
+  created_at?: string | null;
+  updated_at?: string | null;
 };
