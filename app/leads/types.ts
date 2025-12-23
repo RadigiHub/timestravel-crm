@@ -1,25 +1,44 @@
 // app/leads/types.ts
 
-export type LeadStatusId = string;
+export type LeadStatus = {
+  id: string;
+  name: string;
+  color?: string | null;
+};
 
 export type Lead = {
   id: string;
+
   full_name: string;
-  phone: string | null;
-  email: string | null;
-  source: string | null;
+  phone?: string | null; // ✅ allow undefined as well
+  email?: string | null;
+  source?: string | null;
 
-  status_id: LeadStatusId;
+  status_id: string;
 
-  // optional fields (DB me ho sakte hain, UI me optional)
+  // optional fields (your UI has these)
+  trip_type?: string | null;
+  from?: string | null;
+  to?: string | null;
+  preferred_airline?: string | null;
+
+  depart_date?: string | null;
+  return_date?: string | null;
+  cabin?: string | null;
+  budget?: string | null;
+
+  adults?: number | null;
+  children?: number | null;
+  infants?: number | null;
+
+  priority?: string | null;
+  whatsapp?: string | null;
+
+  follow_up_date?: string | null;
+  notes?: string | null;
+
+  // these were causing TS errors in your repo
   assigned_to?: string | null;
-  created_at?: string;
-  updated_at?: string;
-  whatsapp_text?: string | null;
-};
-
-export type LeadStatus = {
-  id: LeadStatusId;
-  name: string;
-  color?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
 };
