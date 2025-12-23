@@ -2,47 +2,55 @@
 
 export type LeadStatusId = string;
 
+export type LeadPriority = "Hot" | "Warm" | "Cold" | string;
+export type TripType = "Return" | "One-way" | "Multi-city" | string;
+
 export type LeadStatus = {
   id: LeadStatusId;
-  name: string;
+  // NOTE: some DB rows may not have name; keep optional to avoid TS breaks
+  name?: string;
   color?: string | null;
-  order?: number | null;
 };
-
-export type LeadPriority = "hot" | "warm" | "cold" | string;
 
 export type Lead = {
   id: string;
 
   full_name: string;
-  phone: string | null; // IMPORTANT: no undefined, only string|null
-  email: string | null;
+
+  // These can be null/undefined depending on form + DB
+  phone?: string | null;
+  email?: string | null;
+  whatsapp?: string | null;
+
   source?: string | null;
 
-  status_id: LeadStatusId | null; // DB can be null
-  priority?: LeadPriority | null;
+  status_id?: LeadStatusId | null;
 
+  trip_type?: TripType | null;
   from?: string | null;
   to?: string | null;
-  trip_type?: string | null;
+  preferred_airline?: string | null;
+
   depart_date?: string | null;
   return_date?: string | null;
+
   cabin?: string | null;
   budget?: string | null;
-  preferred_airline?: string | null;
 
   adults?: number | null;
   children?: number | null;
   infants?: number | null;
 
-  whatsapp?: string | null;
-  whatsapp_text?: string | null;
+  priority?: LeadPriority | null;
 
-  notes?: string | null;
   follow_up_date?: string | null;
+  notes?: string | null;
 
-  assigned_to?: string | null;
-
+  // optional meta fields (keep optional so builds don't break)
   created_at?: string | null;
   updated_at?: string | null;
+  assigned_to?: string | null;
+
+  // optional extra fields (avoid TS break if present in UI code)
+  whatsapp_text?: string | null;
 };
