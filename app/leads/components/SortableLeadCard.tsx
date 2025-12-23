@@ -1,29 +1,25 @@
 "use client";
 
 import * as React from "react";
-import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-
+import { useSortable } from "@dnd-kit/sortable";
 import type { Lead } from "../types";
 import LeadCard from "./LeadCard";
 
 type Props = {
   lead: Lead;
-  statusId: string;
 };
 
-export default function SortableLeadCard({ lead, statusId }: Props) {
+export default function SortableLeadCard({ lead }: Props) {
   const {
     attributes,
     listeners,
     setNodeRef,
+    setActivatorNodeRef,
     transform,
     transition,
     isDragging,
-  } = useSortable({
-    id: lead.id,
-    data: { type: "lead", statusId },
-  });
+  } = useSortable({ id: lead.id });
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -33,7 +29,15 @@ export default function SortableLeadCard({ lead, statusId }: Props) {
 
   return (
     <div ref={setNodeRef} style={style}>
-      <LeadCard lead={lead} dragHandleProps={{ attributes, listeners }} />
+      <LeadCard
+        lead={lead}
+        dragHandleRef={setActivatorNodeRef}
+        dragHandleProps={{
+          ...attributes,
+          ...listeners,
+          style: { touchAction: "none" },
+        }}
+      />
     </div>
   );
 }
