@@ -1,44 +1,74 @@
 "use client";
 
+import * as React from "react";
 import AddLeadForm from "./AddLeadForm";
 
+type Lead = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  source: string | null;
+  status_id: string;
+  position: number;
+  priority: "hot" | "warm" | "cold";
+  assigned_to: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export default function AddLeadModal({
-  open,
-  onClose,
+  defaultStatusId,
+  onCreated,
 }: {
-  open: boolean;
-  onClose: () => void;
+  defaultStatusId: string;
+  onCreated: (lead: Lead) => void;
 }) {
-  if (!open) return null;
+  const [open, setOpen] = React.useState(false);
 
   return (
-    <div className="fixed inset-0 z-50">
-      {/* overlay */}
-      <div
-        className="absolute inset-0 bg-black/40"
-        onClick={onClose}
-      />
+    <>
+      <button
+        type="button"
+        className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+        onClick={() => setOpen(true)}
+      >
+        + Add Lead
+      </button>
 
-      {/* modal */}
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className="w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-xl">
-          <div className="flex items-center justify-between border-b border-zinc-100 px-6 py-4">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Add New Lead</div>
-              <div className="text-xs text-zinc-500">Fill travel details & customer info.</div>
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onMouseDown={(e) => {
+            // click outside to close
+            if (e.target === e.currentTarget) setOpen(false);
+          }}
+        >
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+              <div className="text-base font-semibold text-zinc-900">Add New Lead</div>
+              <button
+                type="button"
+                className="rounded-lg px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100"
+                onClick={() => setOpen(false)}
+              >
+                ✕
+              </button>
             </div>
 
-            <button
-              onClick={onClose}
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-sm hover:bg-zinc-50"
-            >
-              Close ✕
-            </button>
+            <div className="p-5">
+              <AddLeadForm
+                defaultStatusId={defaultStatusId}
+                onCreated={(lead) => {
+                  onCreated(lead);
+                  setOpen(false);
+                }}
+                onCancel={() => setOpen(false)}
+              />
+            </div>
           </div>
-
-          <AddLeadForm onClose={onClose} />
         </div>
-      </div>
-    </div>
+      )}
+    </>
   );
 }
