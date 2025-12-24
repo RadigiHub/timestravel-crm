@@ -1,167 +1,226 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 
-/* ================= TYPES ================= */
+/* ---------------- Types (kept flexible to avoid TS mismatch) ---------------- */
 
-type TripType = "oneway" | "return" | "multicity";
-type Priority = "hot" | "warm" | "cold";
-type CabinClass = "economy" | "premium" | "business" | "first";
+export type AddLeadInput = {
+  full_name: string;
+  phone?: string | null;
+  email?: string | null;
+  source?: string | null;
+  status_id: string; // required
+  priority?: "hot" | "warm" | "cold";
+  assigned_to?: string | null;
+  whatsapp_text?: string | null;
+};
 
-/* ================= HELPERS ================= */
+export type UpdateLeadInput = {
+  id: string;
+  full_name?: string;
+  phone?: string | null;
+  email?: string | null;
+  source?: string | null;
+  status_id?: string | null;
+  position?: number | null;
+  priority?: "hot" | "warm" | "cold";
+  assigned_to?: string | null;
+  whatsapp_text?: string | null;
+};
 
-function toInt(v: FormDataEntryValue | null, fallback: number) {
-  const n = Number(String(v ?? ""));
-  return Number.isFinite(n) ? n : fallback;
+export type MoveLeadInput =
+  | {
+      // ✅ Single-move style
+      leadId: string;
+      toStatusId: string;
+      toPosition: number;
+      fromStatusId?: string | null;
+    }
+  | {
+      // ✅ Batch-reorder style (drag/drop board libs often use this)
+      fromStatusId: string;
+      toStatusId: string;
+      fromOrderIds: string[];
+      toOrderIds: string[];
+    };
+
+type ActionResult<T> =
+  | { ok: true; data?: T }
+  | { ok: false; error: string; details?: unknown };
+
+function toErrorMessage(err: unknown) {
+  if (!err) return "Unknown error";
+  if (typeof err === "string") return err;
+  if (err instanceof Error) return err.message;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return "Unknown error";
+  }
 }
 
-/* ================= CREATE LEAD ================= */
+/* ---------------- Actions ---------------- */
 
-export async function createLeadAction(formData: FormData): Promise<void> {
-  const supabase = await supabaseServer();
-  const { data: authData, error: authErr } = await supabase.auth.getUser();
+export async function addLeadAction(input: AddLeadInput): Promise<ActionResult<{ id: string }>> {
+  try {
+    const supabase = await supabaseServer();
 
-  if (authErr || !authData?.user) redirect("/login");
+    // Auth guard
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return { ok: false, error: "Unauthorized" };
 
-  const user = authData.user;
+    const full_name = (input.full_name || "").trim();
+    if (!full_name) return { ok: false, error: "Full name is required" };
+    if (!input.status_id) return { ok: false, error: "status_id is required" };
 
-  /* ---------- Basic ---------- */
-  const full_name = String(formData.get("full_name") || "").trim();
-  const phone = String(formData.get("phone") || "").trim() || null;
-  const email = String(formData.get("email") || "").trim() || null;
-  const source = String(formData.get("source") || "web").trim() || "web";
+    // Find next position inside the status column
+    const { data: maxRow, error: maxErr } = await supabase
+      .from("leads")
+      .select("position")
+      .eq("status_id", input.status_id)
+      .order("position", { ascending: false })
+      .limit(1);
 
-  /* ---------- Travel ---------- */
-  const trip_type = (String(formData.get("trip_type") || "return") as TripType) ?? "return";
-  const departure = String(formData.get("departure") || "").trim();
-  const destination = String(formData.get("destination") || "").trim();
-  const depart_date = String(formData.get("depart_date") || "").trim();
+    if (maxErr) return { ok: false, error: "Failed to read positions", details: maxErr };
 
-  const return_date_raw = String(formData.get("return_date") || "").trim();
-  const return_date = return_date_raw ? return_date_raw : null;
+    const nextPos = (maxRow?.[0]?.position ?? 0) + 1;
 
-  const adults = toInt(formData.get("adults"), 1);
-  const children = toInt(formData.get("children"), 0);
-  const infants = toInt(formData.get("infants"), 0);
+    const payload = {
+      full_name,
+      phone: input.phone ?? null,
+      email: input.email ?? null,
+      source: input.source ?? null,
+      status_id: input.status_id,
+      position: nextPos,
+      priority: input.priority ?? "warm",
+      assigned_to: input.assigned_to ?? null,
+      whatsapp_text: input.whatsapp_text ?? null,
+    };
 
-  const cabin_class =
-    (String(formData.get("cabin_class") || "economy") as CabinClass) ?? "economy";
+    const { data, error } = await supabase.from("leads").insert(payload).select("id").single();
 
-  const priority = (String(formData.get("priority") || "warm") as Priority) ?? "warm";
+    if (error) return { ok: false, error: "Failed to add lead", details: error };
 
-  const preferred_airline = String(formData.get("preferred_airline") || "").trim() || null;
-  const budget = String(formData.get("budget") || "").trim() || null;
-
-  // form field name: "whatsapp"
-  const whatsapp_text = String(formData.get("whatsapp") || "").trim() || null;
-
-  const follow_up_date_raw = String(formData.get("follow_up_date") || "").trim();
-  const follow_up_date = follow_up_date_raw ? follow_up_date_raw : null;
-
-  const notes = String(formData.get("notes") || "").trim() || null;
-
-  /* ---------- Validation ---------- */
-  if (!full_name) redirect("/leads?message=Full name is required");
-  if (!departure) redirect("/leads?message=Departure is required");
-  if (!destination) redirect("/leads?message=Destination is required");
-  if (!depart_date) redirect("/leads?message=Depart date is required");
-  if (trip_type === "return" && !return_date) redirect("/leads?message=Return date is required");
-  if (adults < 1) redirect("/leads?message=Adults must be at least 1");
-
-  /* ---------- Status & Position ---------- */
-  const status_id = "new";
-
-  const { data: last, error: lastErr } = await supabase
-    .from("leads")
-    .select("position")
-    .eq("status_id", status_id)
-    .order("position", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (lastErr) {
-    redirect(`/leads?message=${encodeURIComponent(lastErr.message)}`);
+    revalidatePath("/leads");
+    return { ok: true, data: { id: data.id } };
+  } catch (e) {
+    return { ok: false, error: toErrorMessage(e), details: e };
   }
-
-  const nextPos = (last?.position ?? -1) + 1;
-
-  /* ---------- Insert ---------- */
-  const { error } = await supabase.from("leads").insert({
-    full_name,
-    phone,
-    email,
-    source,
-    priority,
-
-    trip_type,
-    departure,
-    destination,
-    depart_date,
-    return_date,
-    adults,
-    children,
-    infants,
-    cabin_class,
-    preferred_airline,
-    budget,
-    whatsapp_text,
-    follow_up_date,
-    notes,
-
-    status_id,
-    position: nextPos,
-
-    // FK safe now because profile auto-created + RLS policies added
-    created_by: user.id,
-    assigned_to: user.id,
-
-    last_activity_at: new Date().toISOString(),
-  });
-
-  if (error) {
-    redirect(`/leads?message=${encodeURIComponent(error.message)}`);
-  }
-
-  revalidatePath("/leads");
-
-  // IMPORTANT: Force reload so new lead shows immediately
-  redirect("/leads");
 }
 
-/* ================= MOVE LEAD (DRAG & DROP) ================= */
+export async function updateLeadAction(input: UpdateLeadInput): Promise<ActionResult<null>> {
+  try {
+    const supabase = await supabaseServer();
 
-export async function moveLeadAction(input: {
-  fromStatusId: string;
-  toStatusId: string;
-  fromOrderIds: string[];
-  toOrderIds: string[];
-}): Promise<{ ok: true } | never> {
-  const supabase = await supabaseServer();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return { ok: false, error: "Unauthorized" };
 
-  // FROM column reorder
-  for (let i = 0; i < input.fromOrderIds.length; i++) {
-    const id = input.fromOrderIds[i];
+    if (!input?.id) return { ok: false, error: "id is required" };
+
+    const updates: Record<string, any> = {};
+    if (typeof input.full_name === "string") updates.full_name = input.full_name.trim();
+    if ("phone" in input) updates.phone = input.phone ?? null;
+    if ("email" in input) updates.email = input.email ?? null;
+    if ("source" in input) updates.source = input.source ?? null;
+    if ("status_id" in input) updates.status_id = input.status_id ?? null;
+    if ("position" in input) updates.position = input.position ?? null;
+    if (input.priority) updates.priority = input.priority;
+    if ("assigned_to" in input) updates.assigned_to = input.assigned_to ?? null;
+    if ("whatsapp_text" in input) updates.whatsapp_text = input.whatsapp_text ?? null;
+
+    // nothing to update
+    if (Object.keys(updates).length === 0) return { ok: true, data: null };
+
+    const { error } = await supabase.from("leads").update(updates).eq("id", input.id);
+    if (error) return { ok: false, error: "Failed to update lead", details: error };
+
+    revalidatePath("/leads");
+    return { ok: true, data: null };
+  } catch (e) {
+    return { ok: false, error: toErrorMessage(e), details: e };
+  }
+}
+
+export async function deleteLeadAction(id: string): Promise<ActionResult<null>> {
+  try {
+    const supabase = await supabaseServer();
+
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return { ok: false, error: "Unauthorized" };
+
+    if (!id) return { ok: false, error: "id is required" };
+
+    const { error } = await supabase.from("leads").delete().eq("id", id);
+    if (error) return { ok: false, error: "Failed to delete lead", details: error };
+
+    revalidatePath("/leads");
+    return { ok: true, data: null };
+  } catch (e) {
+    return { ok: false, error: toErrorMessage(e), details: e };
+  }
+}
+
+/**
+ * Handles both:
+ * 1) { leadId, toStatusId, toPosition }
+ * 2) { fromStatusId, toStatusId, fromOrderIds, toOrderIds }
+ */
+export async function moveLeadAction(input: MoveLeadInput): Promise<ActionResult<null>> {
+  try {
+    const supabase = await supabaseServer();
+
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return { ok: false, error: "Unauthorized" };
+
+    // ---- Case 2: batch reorder
+    if ("fromOrderIds" in input && "toOrderIds" in input) {
+      const { fromStatusId, toStatusId, fromOrderIds, toOrderIds } = input;
+
+      // Update all leads in FROM column positions
+      for (let i = 0; i < fromOrderIds.length; i++) {
+        const id = fromOrderIds[i];
+        const { error } = await supabase
+          .from("leads")
+          .update({ status_id: fromStatusId, position: i + 1 })
+          .eq("id", id);
+        if (error) return { ok: false, error: "Failed updating from column order", details: error };
+      }
+
+      // Update all leads in TO column positions
+      for (let i = 0; i < toOrderIds.length; i++) {
+        const id = toOrderIds[i];
+        const { error } = await supabase
+          .from("leads")
+          .update({ status_id: toStatusId, position: i + 1 })
+          .eq("id", id);
+        if (error) return { ok: false, error: "Failed updating to column order", details: error };
+      }
+
+      revalidatePath("/leads");
+      return { ok: true, data: null };
+    }
+
+    // ---- Case 1: single move
+    const leadId = "leadId" in input ? input.leadId : "";
+    const toStatusId = "toStatusId" in input ? input.toStatusId : "";
+    const toPosition = "toPosition" in input ? input.toPosition : 1;
+
+    if (!leadId || !toStatusId) return { ok: false, error: "leadId and toStatusId are required" };
+
     const { error } = await supabase
       .from("leads")
-      .update({ status_id: input.fromStatusId, position: i })
-      .eq("id", id);
+      .update({
+        status_id: toStatusId,
+        position: toPosition,
+      })
+      .eq("id", leadId);
 
-    if (error) throw new Error(error.message);
+    if (error) return { ok: false, error: "Failed to move lead", details: error };
+
+    revalidatePath("/leads");
+    return { ok: true, data: null };
+  } catch (e) {
+    return { ok: false, error: toErrorMessage(e), details: e };
   }
-
-  // TO column reorder
-  for (let i = 0; i < input.toOrderIds.length; i++) {
-    const id = input.toOrderIds[i];
-    const { error } = await supabase
-      .from("leads")
-      .update({ status_id: input.toStatusId, position: i })
-      .eq("id", id);
-
-    if (error) throw new Error(error.message);
-  }
-
-  revalidatePath("/leads");
-  return { ok: true };
 }
