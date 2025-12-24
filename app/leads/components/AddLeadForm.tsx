@@ -17,10 +17,6 @@ type Lead = {
   updated_at: string;
 };
 
-type CreateLeadResult =
-  | { ok: true; lead?: Lead }
-  | { ok: false; error?: string; message?: string };
-
 export default function AddLeadForm({
   defaultStatusId,
   onCreated,
@@ -30,66 +26,66 @@ export default function AddLeadForm({
   onCreated: (lead: Lead) => void;
   onCancel: () => void;
 }) {
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // Customer
   const [full_name, setFullName] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [source, setSource] = React.useState("web");
   const [priority, setPriority] = React.useState<"hot" | "warm" | "cold">("warm");
 
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  // Travel (required by server action validation above)
+  const [trip_type, setTripType] = React.useState<"oneway" | "return" | "multicity">("return");
+  const [departure, setDeparture] = React.useState("");
+  const [destination, setDestination] = React.useState("");
+  const [depart_date, setDepartDate] = React.useState("");
+  const [return_date, setReturnDate] = React.useState("");
+
+  const [adults, setAdults] = React.useState(1);
+  const [children, setChildren] = React.useState(0);
+  const [infants, setInfants] = React.useState(0);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
-    if (!full_name.trim()) {
-      setError("Full name is required.");
-      return;
-    }
+    if (!full_name.trim()) return setError("Full name is required.");
+    if (!departure.trim()) return setError("Departure is required.");
+    if (!destination.trim()) return setError("Destination is required.");
+    if (!depart_date.trim()) return setError("Depart date is required.");
+    if (trip_type === "return" && !return_date.trim()) return setError("Return date is required.");
 
     setLoading(true);
 
-    try {
-      // ✅ Server Action ko FormData chahiye — object nahi
-      const fd = new FormData();
-      fd.set("full_name", full_name.trim());
-      fd.set("phone", phone.trim());
-      fd.set("email", email.trim());
-      fd.set("source", source.trim() || "web");
-      fd.set("priority", priority);
-      fd.set("status_id", defaultStatusId); // agar action use kare
-      // NOTE: agar tumhara createLeadAction travel fields bhi require karta hai,
-      // to yahan fd.set("departure", "...") etc add karna hoga.
+    const res = await createLeadAction({
+      full_name: full_name.trim(),
+      phone: phone.trim() ? phone.trim() : null,
+      email: email.trim() ? email.trim() : null,
+      source: source.trim() ? source.trim() : "web",
+      priority,
+      status_id: defaultStatusId,
 
-      const res = (await createLeadAction(fd)) as unknown as CreateLeadResult | void;
+      trip_type,
+      departure: departure.trim(),
+      destination: destination.trim(),
+      depart_date: depart_date.trim(),
+      return_date: trip_type === "return" ? return_date.trim() : null,
 
-      // kuch setups me server action redirect/revalidate karta hai and value return nahi hoti
-      if (!res) {
-        // fallback: close + hard refresh so board re-fetch ho jaye
-        onCancel();
-        window.location.reload();
-        return;
-      }
+      adults,
+      children,
+      infants,
+    });
 
-      if (!res.ok) {
-        setError(res.error || res.message || "Failed to create lead.");
-        return;
-      }
+    setLoading(false);
 
-      if (res.lead) {
-        onCreated(res.lead);
-        return;
-      }
-
-      // ok=true but lead not returned -> refresh
-      onCancel();
-      window.location.reload();
-    } catch (err: any) {
-      setError(err?.message || "Failed to create lead.");
-    } finally {
-      setLoading(false);
+    if (!res.ok) {
+      setError(res.error ?? "Failed to create lead.");
+      return;
     }
+
+    onCreated(res.lead as unknown as Lead);
   }
 
   return (
@@ -100,6 +96,7 @@ export default function AddLeadForm({
         </div>
       )}
 
+      {/* Customer */}
       <div>
         <label className="mb-1 block text-sm font-medium text-zinc-800">Full Name *</label>
         <input
@@ -107,7 +104,6 @@ export default function AddLeadForm({
           value={full_name}
           onChange={(e) => setFullName(e.target.value)}
           placeholder="e.g. Shehroz Malik"
-          autoFocus
         />
       </div>
 
@@ -149,7 +145,7 @@ export default function AddLeadForm({
           <select
             className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={priority}
-            onChange={(e) => setPriority(e.target.value as "hot" | "warm" | "cold")}
+            onChange={(e) => setPriority(e.target.value as any)}
           >
             <option value="hot">hot</option>
             <option value="warm">warm</option>
@@ -158,10 +154,107 @@ export default function AddLeadForm({
         </div>
       </div>
 
+      {/* Travel */}
+      <div className="rounded-xl border border-zinc-200 bg-white p-3">
+        <div className="mb-2 text-sm font-semibold text-zinc-900">Travel Details</div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-800">Trip Type</label>
+            <select
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              value={trip_type}
+              onChange={(e) => setTripType(e.target.value as any)}
+            >
+              <option value="return">return</option>
+              <option value="oneway">oneway</option>
+              <option value="multicity">multicity</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-800">Adults</label>
+              <input
+                type="number"
+                min={1}
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                value={adults}
+                onChange={(e) => setAdults(Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-800">Children</label>
+              <input
+                type="number"
+                min={0}
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                value={children}
+                onChange={(e) => setChildren(Number(e.target.value))}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-zinc-800">Infants</label>
+              <input
+                type="number"
+                min={0}
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                value={infants}
+                onChange={(e) => setInfants(Number(e.target.value))}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-800">Departure *</label>
+            <input
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              value={departure}
+              onChange={(e) => setDeparture(e.target.value)}
+              placeholder="e.g. London (LHR)"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-800">Destination *</label>
+            <input
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              value={destination}
+              onChange={(e) => setDestination(e.target.value)}
+              placeholder="e.g. Lagos (LOS)"
+            />
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-zinc-800">Depart Date *</label>
+            <input
+              type="date"
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              value={depart_date}
+              onChange={(e) => setDepartDate(e.target.value)}
+            />
+          </div>
+
+          <div className={trip_type !== "return" ? "opacity-50 pointer-events-none" : ""}>
+            <label className="mb-1 block text-sm font-medium text-zinc-800">Return Date *</label>
+            <input
+              type="date"
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              value={return_date}
+              onChange={(e) => setReturnDate(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
       <div className="flex items-center justify-end gap-2 pt-2">
         <button
           type="button"
-          className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-60"
+          className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
           onClick={onCancel}
           disabled={loading}
         >
