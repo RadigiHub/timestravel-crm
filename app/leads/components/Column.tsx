@@ -1,52 +1,74 @@
 "use client";
 
-import React, { type Dispatch, type SetStateAction } from "react";
+import * as React from "react";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { useDroppable } from "@dnd-kit/core";
-
 import SortableLeadCard from "./SortableLeadCard";
-import type { Lead, LeadStatus } from "../types";
 
-type Props = {
-  status: LeadStatus;
-  leadIds: string[];
-  leadsById: Map<string, Lead>;
+type Status = {
+  id: string;
+  label: string;
+  position: number;
+  color?: string | null;
 };
 
-export default function Column({ status, leadIds, leadsById }: Props) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: status.id, // make whole column a drop target
-  });
+type Lead = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  email: string | null;
+  source: string | null;
+  status_id: string;
+  position: number;
+  priority: "hot" | "warm" | "cold";
+  assigned_to: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
+export default function Column({
+  status,
+  leadIds,
+  leadsById,
+  onView,
+  onAction,
+}: {
+  status: Status;
+  leadIds: string[];
+  leadsById: Record<string, Lead>;
+  onView: (lead: Lead) => void;
+  onAction: (lead: Lead, anchorEl: HTMLButtonElement) => void;
+}) {
   return (
-    <div
-      ref={setNodeRef}
-      className={`min-w-[320px] max-w-[360px] rounded-2xl border bg-white p-3 ${
-        isOver ? "border-zinc-400" : "border-zinc-200"
-      }`}
-    >
-      <div className="mb-3 flex items-center justify-between">
-        <div className="text-sm font-semibold text-zinc-800">{status.label}</div>
-        <div className="text-xs text-zinc-500">{leadIds.length}</div>
+    <div className="w-[340px] shrink-0 rounded-2xl border border-zinc-200 bg-white">
+      <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+        <div className="font-semibold text-zinc-900">{status.label}</div>
+        <div className="text-sm text-zinc-500">{leadIds.length}</div>
       </div>
 
-      <SortableContext items={leadIds} strategy={verticalListSortingStrategy}>
-        <div className="space-y-2">
-          {leadIds.map((id) => {
-            const lead = leadsById.get(id);
-            if (!lead) return null;
-
-            return (
-              <SortableLeadCard
-                key={id}
-                id={id}
-                statusId={status.id}
-                lead={lead}
-              />
-            );
-          })}
-        </div>
-      </SortableContext>
+      <div className="p-3">
+        <SortableContext items={leadIds} strategy={verticalListSortingStrategy}>
+          <div className="space-y-2">
+            {leadIds.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-zinc-200 p-4 text-center text-sm text-zinc-500">
+                No leads
+              </div>
+            ) : (
+              leadIds.map((id) => {
+                const lead = leadsById[id];
+                if (!lead) return null;
+                return (
+                  <SortableLeadCard
+                    key={id}
+                    lead={lead}
+                    onView={onView}
+                    onAction={onAction}
+                  />
+                );
+              })
+            )}
+          </div>
+        </SortableContext>
+      </div>
     </div>
   );
 }
