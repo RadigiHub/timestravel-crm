@@ -3,224 +3,161 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase/server";
 
-/* ---------------- Types (kept flexible to avoid TS mismatch) ---------------- */
+/**
+ * NOTE:
+ * - These actions are used by Client Components via server actions.
+ * - Keep exports stable: AddLeadForm.tsx expects `createLeadAction`.
+ */
 
-export type AddLeadInput = {
-  full_name: string;
-  phone?: string | null;
-  email?: string | null;
-  source?: string | null;
-  status_id: string; // required
-  priority?: "hot" | "warm" | "cold";
-  assigned_to?: string | null;
-  whatsapp_text?: string | null;
+type ActionResult<T = unknown> = {
+  ok: boolean;
+  data?: T;
+  error?: string;
 };
 
-export type UpdateLeadInput = {
-  id: string;
-  full_name?: string;
-  phone?: string | null;
-  email?: string | null;
-  source?: string | null;
-  status_id?: string | null;
-  position?: number | null;
-  priority?: "hot" | "warm" | "cold";
-  assigned_to?: string | null;
-  whatsapp_text?: string | null;
-};
-
-export type MoveLeadInput =
-  | {
-      // ✅ Single-move style
-      leadId: string;
-      toStatusId: string;
-      toPosition: number;
-      fromStatusId?: string | null;
-    }
-  | {
-      // ✅ Batch-reorder style (drag/drop board libs often use this)
-      fromStatusId: string;
-      toStatusId: string;
-      fromOrderIds: string[];
-      toOrderIds: string[];
-    };
-
-type ActionResult<T> =
-  | { ok: true; data?: T }
-  | { ok: false; error: string; details?: unknown };
-
-function toErrorMessage(err: unknown) {
-  if (!err) return "Unknown error";
-  if (typeof err === "string") return err;
-  if (err instanceof Error) return err.message;
-  try {
-    return JSON.stringify(err);
-  } catch {
-    return "Unknown error";
-  }
+function toNull(v: FormDataEntryValue | null) {
+  if (v === null) return null;
+  const s = String(v).trim();
+  return s.length ? s : null;
 }
 
-/* ---------------- Actions ---------------- */
+function toString(v: FormDataEntryValue | null, fallback = "") {
+  if (v === null) return fallback;
+  return String(v).trim();
+}
 
-export async function addLeadAction(input: AddLeadInput): Promise<ActionResult<{ id: string }>> {
+function toNumber(v: FormDataEntryValue | null, fallback = 0) {
+  const n = Number(String(v ?? ""));
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Create lead (used by AddLeadForm.tsx)
+ * Expected FormData keys (safe if some are missing):
+ * - full_name, phone, email, source, status_id, priority, assigned_to
+ */
+export async function createLeadAction(formData: FormData): Promise<ActionResult> {
   try {
     const supabase = await supabaseServer();
 
-    // Auth guard
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return { ok: false, error: "Unauthorized" };
+    const full_name = toString(formData.get("full_name"));
+    if (!full_name) return { ok: false, error: "Full name is required." };
 
-    const full_name = (input.full_name || "").trim();
-    if (!full_name) return { ok: false, error: "Full name is required" };
-    if (!input.status_id) return { ok: false, error: "status_id is required" };
+    const phone = toNull(formData.get("phone"));
+    const email = toNull(formData.get("email"));
+    const source = toNull(formData.get("source"));
 
-    // Find next position inside the status column
-    const { data: maxRow, error: maxErr } = await supabase
-      .from("leads")
-      .select("position")
-      .eq("status_id", input.status_id)
-      .order("position", { ascending: false })
-      .limit(1);
+    const status_id = toNull(formData.get("status_id")); // can be null => backend default or first status
+    const assigned_to = toNull(formData.get("assigned_to"));
 
-    if (maxErr) return { ok: false, error: "Failed to read positions", details: maxErr };
+    const priorityRaw = toNull(formData.get("priority"));
+    const priority =
+      priorityRaw === "hot" || priorityRaw === "warm" || priorityRaw === "cold"
+        ? priorityRaw
+        : "warm";
 
-    const nextPos = (maxRow?.[0]?.position ?? 0) + 1;
+    // Optional manual position, otherwise default 0
+    const position = toNumber(formData.get("position"), 0);
 
-    const payload = {
+    const payload: Record<string, any> = {
       full_name,
-      phone: input.phone ?? null,
-      email: input.email ?? null,
-      source: input.source ?? null,
-      status_id: input.status_id,
-      position: nextPos,
-      priority: input.priority ?? "warm",
-      assigned_to: input.assigned_to ?? null,
-      whatsapp_text: input.whatsapp_text ?? null,
+      phone,
+      email,
+      source,
+      priority,
+      assigned_to,
+      position,
     };
 
-    const { data, error } = await supabase.from("leads").insert(payload).select("id").single();
+    // Only attach status_id if provided (avoid null index issues)
+    if (status_id) payload.status_id = status_id;
 
-    if (error) return { ok: false, error: "Failed to add lead", details: error };
+    const { data, error } = await supabase.from("leads").insert(payload).select("*").single();
 
-    revalidatePath("/leads");
-    return { ok: true, data: { id: data.id } };
-  } catch (e) {
-    return { ok: false, error: toErrorMessage(e), details: e };
-  }
-}
-
-export async function updateLeadAction(input: UpdateLeadInput): Promise<ActionResult<null>> {
-  try {
-    const supabase = await supabaseServer();
-
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return { ok: false, error: "Unauthorized" };
-
-    if (!input?.id) return { ok: false, error: "id is required" };
-
-    const updates: Record<string, any> = {};
-    if (typeof input.full_name === "string") updates.full_name = input.full_name.trim();
-    if ("phone" in input) updates.phone = input.phone ?? null;
-    if ("email" in input) updates.email = input.email ?? null;
-    if ("source" in input) updates.source = input.source ?? null;
-    if ("status_id" in input) updates.status_id = input.status_id ?? null;
-    if ("position" in input) updates.position = input.position ?? null;
-    if (input.priority) updates.priority = input.priority;
-    if ("assigned_to" in input) updates.assigned_to = input.assigned_to ?? null;
-    if ("whatsapp_text" in input) updates.whatsapp_text = input.whatsapp_text ?? null;
-
-    // nothing to update
-    if (Object.keys(updates).length === 0) return { ok: true, data: null };
-
-    const { error } = await supabase.from("leads").update(updates).eq("id", input.id);
-    if (error) return { ok: false, error: "Failed to update lead", details: error };
+    if (error) return { ok: false, error: error.message };
 
     revalidatePath("/leads");
-    return { ok: true, data: null };
-  } catch (e) {
-    return { ok: false, error: toErrorMessage(e), details: e };
-  }
-}
-
-export async function deleteLeadAction(id: string): Promise<ActionResult<null>> {
-  try {
-    const supabase = await supabaseServer();
-
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return { ok: false, error: "Unauthorized" };
-
-    if (!id) return { ok: false, error: "id is required" };
-
-    const { error } = await supabase.from("leads").delete().eq("id", id);
-    if (error) return { ok: false, error: "Failed to delete lead", details: error };
-
-    revalidatePath("/leads");
-    return { ok: true, data: null };
-  } catch (e) {
-    return { ok: false, error: toErrorMessage(e), details: e };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Unknown error" };
   }
 }
 
 /**
- * Handles both:
- * 1) { leadId, toStatusId, toPosition }
- * 2) { fromStatusId, toStatusId, fromOrderIds, toOrderIds }
+ * Update lead fields (used by LeadCard / Action modal etc.)
+ * You can pass partial patch fields.
  */
-export async function moveLeadAction(input: MoveLeadInput): Promise<ActionResult<null>> {
+export async function updateLeadAction(
+  leadId: string,
+  patch: Record<string, any>
+): Promise<ActionResult> {
   try {
     const supabase = await supabaseServer();
+    if (!leadId) return { ok: false, error: "Missing leadId." };
 
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return { ok: false, error: "Unauthorized" };
+    const { data, error } = await supabase
+      .from("leads")
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq("id", leadId)
+      .select("*")
+      .single();
 
-    // ---- Case 2: batch reorder
-    if ("fromOrderIds" in input && "toOrderIds" in input) {
-      const { fromStatusId, toStatusId, fromOrderIds, toOrderIds } = input;
+    if (error) return { ok: false, error: error.message };
 
-      // Update all leads in FROM column positions
-      for (let i = 0; i < fromOrderIds.length; i++) {
-        const id = fromOrderIds[i];
-        const { error } = await supabase
-          .from("leads")
-          .update({ status_id: fromStatusId, position: i + 1 })
-          .eq("id", id);
-        if (error) return { ok: false, error: "Failed updating from column order", details: error };
-      }
+    revalidatePath("/leads");
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Unknown error" };
+  }
+}
 
-      // Update all leads in TO column positions
-      for (let i = 0; i < toOrderIds.length; i++) {
-        const id = toOrderIds[i];
-        const { error } = await supabase
-          .from("leads")
-          .update({ status_id: toStatusId, position: i + 1 })
-          .eq("id", id);
-        if (error) return { ok: false, error: "Failed updating to column order", details: error };
-      }
+/**
+ * Move lead across status + set position (used by Board drag-drop)
+ */
+export async function moveLeadAction(
+  leadId: string,
+  toStatusId: string,
+  toPosition: number
+): Promise<ActionResult> {
+  try {
+    const supabase = await supabaseServer();
+    if (!leadId) return { ok: false, error: "Missing leadId." };
+    if (!toStatusId) return { ok: false, error: "Missing status id." };
 
-      revalidatePath("/leads");
-      return { ok: true, data: null };
-    }
-
-    // ---- Case 1: single move
-    const leadId = "leadId" in input ? input.leadId : "";
-    const toStatusId = "toStatusId" in input ? input.toStatusId : "";
-    const toPosition = "toPosition" in input ? input.toPosition : 1;
-
-    if (!leadId || !toStatusId) return { ok: false, error: "leadId and toStatusId are required" };
-
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("leads")
       .update({
         status_id: toStatusId,
         position: toPosition,
+        updated_at: new Date().toISOString(),
       })
-      .eq("id", leadId);
+      .eq("id", leadId)
+      .select("*")
+      .single();
 
-    if (error) return { ok: false, error: "Failed to move lead", details: error };
+    if (error) return { ok: false, error: error.message };
 
     revalidatePath("/leads");
-    return { ok: true, data: null };
-  } catch (e) {
-    return { ok: false, error: toErrorMessage(e), details: e };
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Unknown error" };
+  }
+}
+
+/**
+ * Delete lead (optional future use)
+ */
+export async function deleteLeadAction(leadId: string): Promise<ActionResult> {
+  try {
+    const supabase = await supabaseServer();
+    if (!leadId) return { ok: false, error: "Missing leadId." };
+
+    const { error } = await supabase.from("leads").delete().eq("id", leadId);
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePath("/leads");
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Unknown error" };
   }
 }
