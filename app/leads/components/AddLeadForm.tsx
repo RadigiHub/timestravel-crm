@@ -17,6 +17,10 @@ type Lead = {
   updated_at: string;
 };
 
+type CreateLeadResult =
+  | { ok: true; lead?: Lead }
+  | { ok: false; error?: string; message?: string };
+
 export default function AddLeadForm({
   defaultStatusId,
   onCreated,
@@ -45,22 +49,47 @@ export default function AddLeadForm({
     }
 
     setLoading(true);
-    const res = await createLeadAction({
-      full_name: full_name.trim(),
-      phone: phone.trim() ? phone.trim() : null,
-      email: email.trim() ? email.trim() : null,
-      source: source.trim() ? source.trim() : null,
-      priority,
-      status_id: defaultStatusId,
-    });
-    setLoading(false);
 
-    if (!res.ok || !res.lead) {
-      setError(res.error ?? "Failed to create lead.");
-      return;
+    try {
+      // ✅ Server Action ko FormData chahiye — object nahi
+      const fd = new FormData();
+      fd.set("full_name", full_name.trim());
+      fd.set("phone", phone.trim());
+      fd.set("email", email.trim());
+      fd.set("source", source.trim() || "web");
+      fd.set("priority", priority);
+      fd.set("status_id", defaultStatusId); // agar action use kare
+      // NOTE: agar tumhara createLeadAction travel fields bhi require karta hai,
+      // to yahan fd.set("departure", "...") etc add karna hoga.
+
+      const res = (await createLeadAction(fd)) as unknown as CreateLeadResult | void;
+
+      // kuch setups me server action redirect/revalidate karta hai and value return nahi hoti
+      if (!res) {
+        // fallback: close + hard refresh so board re-fetch ho jaye
+        onCancel();
+        window.location.reload();
+        return;
+      }
+
+      if (!res.ok) {
+        setError(res.error || res.message || "Failed to create lead.");
+        return;
+      }
+
+      if (res.lead) {
+        onCreated(res.lead);
+        return;
+      }
+
+      // ok=true but lead not returned -> refresh
+      onCancel();
+      window.location.reload();
+    } catch (err: any) {
+      setError(err?.message || "Failed to create lead.");
+    } finally {
+      setLoading(false);
     }
-
-    onCreated(res.lead as Lead);
   }
 
   return (
@@ -78,6 +107,7 @@ export default function AddLeadForm({
           value={full_name}
           onChange={(e) => setFullName(e.target.value)}
           placeholder="e.g. Shehroz Malik"
+          autoFocus
         />
       </div>
 
@@ -119,7 +149,7 @@ export default function AddLeadForm({
           <select
             className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={priority}
-            onChange={(e) => setPriority(e.target.value as any)}
+            onChange={(e) => setPriority(e.target.value as "hot" | "warm" | "cold")}
           >
             <option value="hot">hot</option>
             <option value="warm">warm</option>
@@ -131,12 +161,13 @@ export default function AddLeadForm({
       <div className="flex items-center justify-end gap-2 pt-2">
         <button
           type="button"
-          className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
+          className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-60"
           onClick={onCancel}
           disabled={loading}
         >
           Cancel
         </button>
+
         <button
           type="submit"
           className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
