@@ -30,7 +30,7 @@ export default function AddLeadModal({
             if (e.target === e.currentTarget) setOpen(false);
           }}
         >
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
+          <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
               <div className="text-base font-semibold text-zinc-900">Add New Lead</div>
               <button
