@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import type { Lead, LeadPriority, CreateLeadInput, ActionResult } from "../actions";
 import { createLeadAction } from "../actions";
+import type { Lead } from "../actions";
 
 export default function AddLeadForm({
   defaultStatusId,
@@ -17,7 +17,7 @@ export default function AddLeadForm({
   const [phone, setPhone] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [source, setSource] = React.useState("web");
-  const [priority, setPriority] = React.useState<LeadPriority>("warm");
+  const [priority, setPriority] = React.useState<"hot" | "warm" | "cold">("warm");
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -26,31 +26,30 @@ export default function AddLeadForm({
     e.preventDefault();
     setError(null);
 
-    const name = full_name.trim();
-    if (!name) {
+    if (!full_name.trim()) {
       setError("Full name is required.");
       return;
     }
 
-    const payload: CreateLeadInput = {
-      full_name: name,
+    setLoading(true);
+
+    const res = await createLeadAction({
+      full_name: full_name.trim(),
       phone: phone.trim() ? phone.trim() : null,
       email: email.trim() ? email.trim() : null,
       source: source.trim() ? source.trim() : null,
       priority,
       status_id: defaultStatusId,
-    };
+    });
 
-    setLoading(true);
-    const res = (await createLeadAction(payload)) as ActionResult<Lead>;
     setLoading(false);
 
     if (!res.ok) {
-      setError(res.error || "Failed to create lead.");
+      setError(res.error ?? "Failed to create lead.");
       return;
     }
 
-    onCreated(res.data);
+    onCreated(res.lead);
   }
 
   return (
@@ -109,7 +108,7 @@ export default function AddLeadForm({
           <select
             className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
             value={priority}
-            onChange={(e) => setPriority(e.target.value as LeadPriority)}
+            onChange={(e) => setPriority(e.target.value as any)}
           >
             <option value="hot">hot</option>
             <option value="warm">warm</option>
