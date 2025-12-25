@@ -14,9 +14,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import Column from "./Column";
 import AddLeadModal from "./AddLeadModal";
 import { moveLeadAction } from "../actions";
-
-// ✅ IMPORTANT: types bhi yahin se lo taake mismatch na ho
-import type { Lead, LeadStatus as Status } from "../actions";
+import type { Lead, LeadStatus } from "../actions";
 
 function normalizeLead(l: any): Lead {
   return {
@@ -25,33 +23,31 @@ function normalizeLead(l: any): Lead {
     phone: l.phone ?? null,
     email: l.email ?? null,
     source: l.source ?? null,
-    status_id: String(l.status_id ?? ""),
+    status_id: String(l.status_id),
     position: Number(l.position ?? 0),
     priority: (l.priority ?? "warm") as any,
     assigned_to: l.assigned_to ?? null,
     created_at: l.created_at ?? "",
     updated_at: l.updated_at ?? "",
-  } as Lead;
+  };
 }
 
 export default function Board({
   statuses,
   initialLeads,
 }: {
-  statuses: Status[];
+  statuses: LeadStatus[];
   initialLeads: Lead[];
 }) {
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
 
   const [leads, setLeads] = React.useState<Lead[]>(
     (initialLeads ?? []).map(normalizeLead)
   );
 
-  const leadsById = React.useMemo(() => {
+  const leadsById = React.useMemo<Record<string, Lead>>(() => {
     const map: Record<string, Lead> = {};
     for (const l of leads) map[l.id] = l;
     return map;
@@ -65,7 +61,7 @@ export default function Board({
 
     const sorted = [...leads].sort((a, b) => {
       if (a.status_id === b.status_id) return (a.position ?? 0) - (b.position ?? 0);
-      return (a.status_id ?? "").localeCompare(b.status_id ?? "");
+      return a.status_id.localeCompare(b.status_id);
     });
 
     for (const l of sorted) {
@@ -74,7 +70,6 @@ export default function Board({
       if (!next[sid]) next[sid] = [];
       next[sid].push(l.id);
     }
-
     setOrderByStatus(next);
   }, [statuses, leads]);
 
@@ -87,7 +82,6 @@ export default function Board({
     setActionLead(lead);
     setActionAnchor(anchor);
   }
-
   function closeActions() {
     setActionLead(null);
     setActionAnchor(null);
@@ -110,11 +104,7 @@ export default function Board({
       if (ids.includes(overId)) toStatusId = s.id;
     }
 
-    // dropped on empty column area
-    if (!toStatusId && orderByStatus[overId]) {
-      toStatusId = overId;
-    }
-
+    if (!toStatusId && orderByStatus[overId]) toStatusId = overId;
     if (!fromStatusId || !toStatusId) return;
 
     const fromIds = [...(orderByStatus[fromStatusId] ?? [])];
@@ -124,13 +114,8 @@ export default function Board({
     const newIndex = toIds.indexOf(overId);
 
     if (fromStatusId === toStatusId) {
-      const reordered = arrayMove(
-        fromIds,
-        oldIndex,
-        newIndex < 0 ? fromIds.length - 1 : newIndex
-      );
-
-      setOrderByStatus((prev) => ({ ...prev, [fromStatusId!]: reordered }));
+      const reordered = arrayMove(fromIds, oldIndex, newIndex < 0 ? fromIds.length - 1 : newIndex);
+      setOrderByStatus({ ...orderByStatus, [fromStatusId]: reordered });
 
       setLeads((prev) =>
         prev.map((l) => {
@@ -149,17 +134,15 @@ export default function Board({
       return;
     }
 
-    // move between columns
     fromIds.splice(oldIndex, 1);
-
     const insertIndex = newIndex >= 0 ? newIndex : toIds.length;
     toIds.splice(insertIndex, 0, activeId);
 
-    setOrderByStatus((prev) => ({
-      ...prev,
-      [fromStatusId!]: fromIds,
-      [toStatusId!]: toIds,
-    }));
+    setOrderByStatus({
+      ...orderByStatus,
+      [fromStatusId]: fromIds,
+      [toStatusId]: toIds,
+    });
 
     setLeads((prev) =>
       prev.map((l) => {
@@ -183,23 +166,17 @@ export default function Board({
   const menuStyle: React.CSSProperties | undefined = actionAnchor
     ? (() => {
         const rect = actionAnchor.getBoundingClientRect();
-        return {
-          position: "fixed",
-          top: rect.bottom + 8,
-          left: rect.left,
-          zIndex: 60,
-        };
+        return { position: "fixed", top: rect.bottom + 8, left: rect.left, zIndex: 60 };
       })()
     : undefined;
 
   function copyText(text: string) {
-    navigator.clipboard?.writeText(text).catch(() => {});
+    navigator.clipboard?.writeText(text ?? "").catch(() => {});
   }
 
   function openWhatsApp(phone: string | null, name: string | null) {
     if (!phone) return;
-    const safeName = name?.trim() || "there";
-    const msg = encodeURIComponent(`Hi ${safeName}, regarding your travel inquiry...`);
+    const msg = encodeURIComponent(`Hi ${name ?? ""}, regarding your travel inquiry...`);
     const digits = phone.replace(/[^\d]/g, "");
     window.open(`https://wa.me/${digits}?text=${msg}`, "_blank");
   }
@@ -217,7 +194,6 @@ export default function Board({
             onCreated={(newLead) => {
               const lead = normalizeLead(newLead);
               setLeads((prev) => [lead, ...prev]);
-
               setOrderByStatus((prev) => {
                 const cur = prev[firstStatusId] ?? [];
                 return { ...prev, [firstStatusId]: [lead.id, ...cur] };
@@ -265,7 +241,7 @@ export default function Board({
             <div className="space-y-3 p-5">
               <div>
                 <div className="text-xs text-zinc-500">Name</div>
-                <div className="font-semibold text-zinc-900">{viewLead.full_name || "—"}</div>
+                <div className="font-semibold text-zinc-900">{viewLead.full_name ?? "—"}</div>
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -286,7 +262,7 @@ export default function Board({
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Priority</div>
-                  <div className="text-sm text-zinc-800 capitalize">{viewLead.priority as any}</div>
+                  <div className="text-sm text-zinc-800 capitalize">{viewLead.priority}</div>
                 </div>
               </div>
 
