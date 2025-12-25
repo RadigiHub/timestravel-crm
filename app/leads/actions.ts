@@ -16,11 +16,11 @@ export type Lead = {
   email: string | null;
   source: string | null;
   status_id: string;
-  position: number;
-  priority: "hot" | "warm" | "cold";
+  position: number | null;
+  priority: "hot" | "warm" | "cold" | null;
   assigned_to: string | null;
-  created_at: string;
-  updated_at: string;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 export type CreateLeadInput = {
@@ -28,94 +28,89 @@ export type CreateLeadInput = {
   phone?: string | null;
   email?: string | null;
   source?: string | null;
-  priority?: "hot" | "warm" | "cold";
+  priority?: "hot" | "warm" | "cold" | null;
   status_id: string;
+  assigned_to?: string | null;
 };
 
-export type CreateLeadResult =
-  | { ok: true; lead: Lead }
-  | { ok: false; error: string };
+export async function createLeadAction(input: CreateLeadInput) {
+  try {
+    const supabase = await supabaseServer();
 
-export type MoveLeadInput = {
+    const payload = {
+      full_name: input.full_name?.trim() || null,
+      phone: input.phone ?? null,
+      email: input.email ?? null,
+      source: input.source ?? null,
+      priority: input.priority ?? "warm",
+      status_id: input.status_id,
+      assigned_to: input.assigned_to ?? null,
+    };
+
+    if (!payload.full_name) {
+      return { ok: false as const, error: "Full name is required." };
+    }
+    if (!payload.status_id) {
+      return { ok: false as const, error: "Status is required." };
+    }
+
+    const { data, error } = await supabase
+      .from("leads")
+      .insert(payload)
+      .select("*")
+      .single();
+
+    if (error) return { ok: false as const, error: error.message };
+
+    return { ok: true as const, lead: data as Lead };
+  } catch (e: any) {
+    return { ok: false as const, error: e?.message ?? "Create lead failed." };
+  }
+}
+
+export async function moveLeadAction(args: {
   fromStatusId: string;
   toStatusId: string;
   fromOrderIds: string[];
   toOrderIds: string[];
-};
-
-export async function createLeadAction(input: CreateLeadInput): Promise<CreateLeadResult> {
+}) {
   const supabase = await supabaseServer();
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth?.user) return { ok: false, error: "Unauthorized" };
 
-  const full_name = (input.full_name ?? "").trim();
-  if (!full_name) return { ok: false, error: "Full name is required." };
-  if (!input.status_id) return { ok: false, error: "status_id is required." };
-
-  const insertRow = {
-    full_name,
-    phone: input.phone ?? null,
-    email: input.email ?? null,
-    source: input.source ?? null,
-    priority: input.priority ?? "warm",
-    status_id: input.status_id,
-    // put on top by default
-    position: 0,
-  };
-
-  const { data: created, error: cErr } = await supabase
-    .from("leads")
-    .insert(insertRow)
-    .select("*")
-    .single();
-
-  if (cErr || !created) {
-    return { ok: false, error: cErr?.message ?? "Failed to create lead." };
-  }
-
-  // OPTIONAL: re-normalize positions inside this status so duplicates na banain
-  // (safe + simple)
-  const { data: sameStatus } = await supabase
-    .from("leads")
-    .select("id")
-    .eq("status_id", insertRow.status_id)
-    .order("position", { ascending: true })
-    .order("updated_at", { ascending: false });
-
-  if (sameStatus && sameStatus.length) {
-    // new lead ko top pe rakh do
-    const ids = [
-      created.id,
-      ...sameStatus.map((r: any) => r.id).filter((id: string) => id !== created.id),
-    ];
-
-    // update positions in small batches
-    for (let i = 0; i < ids.length; i++) {
-      await supabase.from("leads").update({ position: i }).eq("id", ids[i]);
+  // update positions in source column
+  if (args.fromStatusId) {
+    for (let i = 0; i < args.fromOrderIds.length; i++) {
+      const id = args.fromOrderIds[i];
+      await supabase.from("leads").update({ position: i }).eq("id", id);
     }
   }
 
-  return { ok: true, lead: created as Lead };
+  // update status + positions in destination column
+  if (args.toStatusId) {
+    for (let i = 0; i < args.toOrderIds.length; i++) {
+      const id = args.toOrderIds[i];
+      await supabase
+        .from("leads")
+        .update({ status_id: args.toStatusId, position: i })
+        .eq("id", id);
+    }
+  }
+
+  return { ok: true as const };
 }
 
-export async function moveLeadAction(input: MoveLeadInput): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function updateLeadAction(args: {
+  id: string;
+  patch: Partial<Pick<Lead, "full_name" | "phone" | "email" | "source" | "priority" | "assigned_to">>;
+}) {
   const supabase = await supabaseServer();
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth?.user) return { ok: false, error: "Unauthorized" };
 
-  const { fromStatusId, toStatusId, fromOrderIds, toOrderIds } = input;
+  const { data, error } = await supabase
+    .from("leads")
+    .update(args.patch)
+    .eq("id", args.id)
+    .select("*")
+    .single();
 
-  // update "from" column positions
-  for (let i = 0; i < fromOrderIds.length; i++) {
-    const id = fromOrderIds[i];
-    await supabase.from("leads").update({ status_id: fromStatusId, position: i }).eq("id", id);
-  }
-
-  // update "to" column positions (and status_id)
-  for (let i = 0; i < toOrderIds.length; i++) {
-    const id = toOrderIds[i];
-    await supabase.from("leads").update({ status_id: toStatusId, position: i }).eq("id", id);
-  }
-
-  return { ok: true };
+  if (error) return { ok: false as const, error: error.message };
+  return { ok: true as const, lead: data as Lead };
 }
