@@ -1,8 +1,7 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase/server";
-
-export type LeadPriority = "hot" | "warm" | "cold";
 
 export type LeadStatus = {
   id: string;
@@ -19,10 +18,10 @@ export type Lead = {
   source: string | null;
   status_id: string;
   position: number;
-  priority: LeadPriority;
+  priority: "hot" | "warm" | "cold" | null;
   assigned_to: string | null;
-  created_at: string | null;
-  updated_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type CreateLeadInput = {
@@ -30,69 +29,41 @@ export type CreateLeadInput = {
   phone?: string | null;
   email?: string | null;
   source?: string | null;
-  priority?: LeadPriority;
+  priority?: "hot" | "warm" | "cold";
   status_id: string;
-
-  // future optional travel fields (agar DB me add ho to use karo)
-  departure?: string | null;
-  destination?: string | null;
-  depart_date?: string | null;
-  return_date?: string | null;
-  pax?: number | null;
 };
 
-export type ActionResult<T> =
-  | { ok: true; data: T }
+export type CreateLeadResult =
+  | { ok: true; lead: Lead }
   | { ok: false; error: string };
 
-export async function createLeadAction(input: CreateLeadInput): Promise<ActionResult<Lead>> {
-  try {
-    const supabase = await supabaseServer();
+export async function createLeadAction(input: CreateLeadInput): Promise<CreateLeadResult> {
+  const supabase = await supabaseServer();
 
-    const full_name = input.full_name?.trim();
-    if (!full_name) return { ok: false, error: "Full name is required." };
+  const name = (input.full_name ?? "").trim();
+  if (!name) return { ok: false, error: "Full name is required." };
+  if (!input.status_id) return { ok: false, error: "Status is required." };
 
-    // position = last position + 1 in that status
-    const { data: last, error: lastErr } = await supabase
-      .from("leads")
-      .select("position")
-      .eq("status_id", input.status_id)
-      .order("position", { ascending: false })
-      .limit(1);
+  const payload = {
+    full_name: name,
+    phone: input.phone ?? null,
+    email: input.email ?? null,
+    source: input.source ?? "web",
+    priority: input.priority ?? "warm",
+    status_id: input.status_id,
+    position: 0,
+  };
 
-    if (lastErr) return { ok: false, error: lastErr.message };
+  const { data, error } = await supabase
+    .from("leads")
+    .insert(payload)
+    .select("*")
+    .single();
 
-    const nextPos = (last?.[0]?.position ?? -1) + 1;
+  if (error) return { ok: false, error: error.message };
 
-    const payload: any = {
-      full_name,
-      phone: input.phone ?? null,
-      email: input.email ?? null,
-      source: input.source ?? null,
-      priority: input.priority ?? "warm",
-      status_id: input.status_id,
-      position: nextPos,
-
-      // optional travel fields (safe even if columns not exist? -> if columns don't exist, remove these 6 lines)
-      departure: input.departure ?? null,
-      destination: input.destination ?? null,
-      depart_date: input.depart_date ?? null,
-      return_date: input.return_date ?? null,
-      pax: input.pax ?? null,
-    };
-
-    const { data, error } = await supabase
-      .from("leads")
-      .insert(payload)
-      .select("*")
-      .single();
-
-    if (error) return { ok: false, error: error.message };
-
-    return { ok: true, data: data as Lead };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Unknown error" };
-  }
+  revalidatePath("/leads");
+  return { ok: true, lead: data as Lead };
 }
 
 export type MoveLeadInput = {
@@ -102,34 +73,53 @@ export type MoveLeadInput = {
   toOrderIds: string[];
 };
 
-export async function moveLeadAction(input: MoveLeadInput): Promise<ActionResult<true>> {
-  try {
-    const supabase = await supabaseServer();
+export async function moveLeadAction(input: MoveLeadInput) {
+  const supabase = await supabaseServer();
 
-    // update from column positions
-    for (let i = 0; i < input.fromOrderIds.length; i++) {
-      const id = input.fromOrderIds[i];
-      const { error } = await supabase
-        .from("leads")
-        .update({ position: i })
-        .eq("id", id);
+  // Update FROM column ordering
+  const fromUpdates = (input.fromOrderIds ?? []).map((id, idx) =>
+    supabase
+      .from("leads")
+      .update({ status_id: input.fromStatusId, position: idx })
+      .eq("id", id)
+  );
 
-      if (error) return { ok: false, error: error.message };
-    }
+  // Update TO column ordering
+  const toUpdates = (input.toOrderIds ?? []).map((id, idx) =>
+    supabase
+      .from("leads")
+      .update({ status_id: input.toStatusId, position: idx })
+      .eq("id", id)
+  );
 
-    // update to column positions + status
-    for (let i = 0; i < input.toOrderIds.length; i++) {
-      const id = input.toOrderIds[i];
-      const { error } = await supabase
-        .from("leads")
-        .update({ status_id: input.toStatusId, position: i })
-        .eq("id", id);
+  await Promise.all([...fromUpdates, ...toUpdates]);
 
-      if (error) return { ok: false, error: error.message };
-    }
+  revalidatePath("/leads");
+}
 
-    return { ok: true, data: true };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Unknown error" };
-  }
+export type UpdateLeadInput = {
+  id: string;
+  full_name?: string;
+  phone?: string | null;
+  email?: string | null;
+  source?: string | null;
+  priority?: "hot" | "warm" | "cold" | null;
+  assigned_to?: string | null;
+};
+
+export async function updateLeadAction(input: UpdateLeadInput) {
+  const supabase = await supabaseServer();
+
+  const patch: any = {};
+  if (typeof input.full_name === "string") patch.full_name = input.full_name.trim();
+  if ("phone" in input) patch.phone = input.phone ?? null;
+  if ("email" in input) patch.email = input.email ?? null;
+  if ("source" in input) patch.source = input.source ?? null;
+  if ("priority" in input) patch.priority = input.priority ?? null;
+  if ("assigned_to" in input) patch.assigned_to = input.assigned_to ?? null;
+
+  const { error } = await supabase.from("leads").update(patch).eq("id", input.id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/leads");
 }
