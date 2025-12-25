@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { createLeadAction } from "../actions";
-import type { Lead, CreateLeadResult } from "../actions";
+import type { Lead, CreateLeadInput, CreateLeadResult } from "../actions";
 
 export default function AddLeadForm({
   defaultStatusId,
@@ -26,22 +26,23 @@ export default function AddLeadForm({
     e.preventDefault();
     setError(null);
 
-    if (!full_name.trim()) {
+    const name = full_name.trim();
+    if (!name) {
       setError("Full name is required.");
       return;
     }
 
-    setLoading(true);
-
-    const res = (await createLeadAction({
-      full_name: full_name.trim(),
+    const payload: CreateLeadInput = {
+      full_name: name,
       phone: phone.trim() ? phone.trim() : null,
       email: email.trim() ? email.trim() : null,
       source: source.trim() ? source.trim() : null,
       priority,
       status_id: defaultStatusId,
-    })) as CreateLeadResult;
+    };
 
+    setLoading(true);
+    const res = (await createLeadAction(payload)) as CreateLeadResult;
     setLoading(false);
 
     if (!res.ok) {
