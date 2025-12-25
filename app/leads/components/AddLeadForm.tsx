@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { createLeadAction } from "../actions";
-import type { Lead } from "../actions";
+import type { Lead, CreateLeadResult } from "../actions";
 
 export default function AddLeadForm({
   defaultStatusId,
@@ -33,14 +33,14 @@ export default function AddLeadForm({
 
     setLoading(true);
 
-    const res = await createLeadAction({
+    const res = (await createLeadAction({
       full_name: full_name.trim(),
       phone: phone.trim() ? phone.trim() : null,
       email: email.trim() ? email.trim() : null,
       source: source.trim() ? source.trim() : null,
       priority,
       status_id: defaultStatusId,
-    });
+    })) as CreateLeadResult;
 
     setLoading(false);
 
