@@ -18,17 +18,25 @@ import type { Lead, LeadStatus } from "../actions";
 
 function normalizeLead(l: any): Lead {
   return {
-    id: l.id,
+    id: String(l.id),
     full_name: l.full_name ?? null,
     phone: l.phone ?? null,
     email: l.email ?? null,
     source: l.source ?? null,
-    status_id: l.status_id,
-    position: typeof l.position === "number" ? l.position : Number(l.position ?? 0),
+    status_id: String(l.status_id),
+    position: Number(l.position ?? 0),
     priority: (l.priority ?? "warm") as any,
     assigned_to: l.assigned_to ?? null,
-    created_at: l.created_at ?? null,
-    updated_at: l.updated_at ?? null,
+    created_at: l.created_at ?? "",
+    updated_at: l.updated_at ?? "",
+
+    departure: l.departure ?? null,
+    destination: l.destination ?? null,
+    depart_date: l.depart_date ?? null,
+    return_date: l.return_date ?? null,
+    pax_adults: l.pax_adults ?? null,
+    pax_children: l.pax_children ?? null,
+    pax_infants: l.pax_infants ?? null,
   };
 }
 
@@ -41,7 +49,7 @@ export default function Board({
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
+      activationConstraint: { distance: 6 }, // click buttons safe, accidental drag avoid
     })
   );
 
@@ -63,15 +71,15 @@ export default function Board({
 
     const sorted = [...leads].sort((a, b) => {
       if (a.status_id === b.status_id) return (a.position ?? 0) - (b.position ?? 0);
-      return String(a.status_id).localeCompare(String(b.status_id));
+      return a.status_id.localeCompare(b.status_id);
     });
 
     for (const l of sorted) {
-      const sid = l.status_id;
-      if (!sid) continue;
-      if (!next[sid]) next[sid] = [];
-      next[sid].push(l.id);
+      if (!l.status_id) continue;
+      if (!next[l.status_id]) next[l.status_id] = [];
+      next[l.status_id].push(l.id);
     }
+
     setOrderByStatus(next);
   }, [statuses, leads]);
 
@@ -84,7 +92,6 @@ export default function Board({
     setActionLead(lead);
     setActionAnchor(anchor);
   }
-
   function closeActions() {
     setActionLead(null);
     setActionAnchor(null);
@@ -108,19 +115,16 @@ export default function Board({
     }
 
     if (!toStatusId && orderByStatus[overId]) toStatusId = overId;
-
     if (!fromStatusId || !toStatusId) return;
 
     const fromIds = [...(orderByStatus[fromStatusId] ?? [])];
-    const toIds =
-      fromStatusId === toStatusId ? fromIds : [...(orderByStatus[toStatusId] ?? [])];
+    const toIds = fromStatusId === toStatusId ? fromIds : [...(orderByStatus[toStatusId] ?? [])];
 
     const oldIndex = fromIds.indexOf(activeId);
     const newIndex = toIds.indexOf(overId);
 
     if (fromStatusId === toStatusId) {
       const reordered = arrayMove(fromIds, oldIndex, newIndex < 0 ? fromIds.length - 1 : newIndex);
-
       setOrderByStatus((prev) => ({ ...prev, [fromStatusId!]: reordered }));
 
       setLeads((prev) =>
@@ -200,6 +204,7 @@ export default function Board({
             onCreated={(newLead) => {
               const lead = normalizeLead(newLead);
               setLeads((prev) => [lead, ...prev]);
+
               setOrderByStatus((prev) => {
                 const cur = prev[firstStatusId] ?? [];
                 return { ...prev, [firstStatusId]: [lead.id, ...cur] };
@@ -268,7 +273,7 @@ export default function Board({
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Priority</div>
-                  <div className="text-sm text-zinc-800 capitalize">{viewLead.priority ?? "warm"}</div>
+                  <div className="text-sm text-zinc-800 capitalize">{viewLead.priority ?? "—"}</div>
                 </div>
               </div>
 
@@ -282,7 +287,6 @@ export default function Board({
                 >
                   Call
                 </button>
-
                 <button
                   type="button"
                   className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
@@ -290,7 +294,6 @@ export default function Board({
                 >
                   WhatsApp
                 </button>
-
                 <button
                   type="button"
                   className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
@@ -308,10 +311,7 @@ export default function Board({
       {actionLead && actionAnchor && (
         <>
           <div className="fixed inset-0 z-50" onMouseDown={closeActions} />
-          <div
-            style={menuStyle}
-            className="z-[60] w-56 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg"
-          >
+          <div style={menuStyle} className="z-[60] w-56 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
             <button
               type="button"
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
