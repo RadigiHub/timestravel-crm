@@ -14,42 +14,21 @@ import { arrayMove } from "@dnd-kit/sortable";
 import Column from "./Column";
 import AddLeadModal from "./AddLeadModal";
 import { moveLeadAction } from "../actions";
-
-type Status = {
-  id: string;
-  label: string;
-  position: number;
-  color?: string | null;
-};
-
-type Lead = {
-  id: string;
-  full_name: string;
-  phone: string | null;
-  email: string | null;
-  source: string | null;
-  status_id: string;
-  position: number;
-  priority: "hot" | "warm" | "cold";
-  assigned_to: string | null;
-  created_at: string;
-  updated_at: string;
-};
+import type { Lead, LeadStatus } from "../actions";
 
 function normalizeLead(l: any): Lead {
-  // ensure no undefineds
   return {
-    id: l.id,
-    full_name: l.full_name ?? "",
+    id: String(l.id),
+    full_name: l.full_name ?? null,
     phone: l.phone ?? null,
     email: l.email ?? null,
     source: l.source ?? null,
-    status_id: l.status_id,
+    status_id: String(l.status_id),
     position: Number(l.position ?? 0),
     priority: (l.priority ?? "warm") as any,
     assigned_to: l.assigned_to ?? null,
-    created_at: l.created_at ?? "",
-    updated_at: l.updated_at ?? "",
+    created_at: l.created_at ?? null,
+    updated_at: l.updated_at ?? null,
   };
 }
 
@@ -57,12 +36,12 @@ export default function Board({
   statuses,
   initialLeads,
 }: {
-  statuses: Status[];
+  statuses: LeadStatus[];
   initialLeads: Lead[];
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 }, // avoids accidental drags on click
+      activationConstraint: { distance: 6 },
     })
   );
 
@@ -76,14 +55,12 @@ export default function Board({
     return map;
   }, [leads]);
 
-  // orderByStatus: statusId -> array of leadIds
   const [orderByStatus, setOrderByStatus] = React.useState<Record<string, string[]>>({});
 
   React.useEffect(() => {
     const next: Record<string, string[]> = {};
     for (const s of statuses) next[s.id] = [];
 
-    // sort leads by status_id then position
     const sorted = [...leads].sort((a, b) => {
       if (a.status_id === b.status_id) return (a.position ?? 0) - (b.position ?? 0);
       return a.status_id.localeCompare(b.status_id);
@@ -95,6 +72,7 @@ export default function Board({
       if (!next[sid]) next[sid] = [];
       next[sid].push(l.id);
     }
+
     setOrderByStatus(next);
   }, [statuses, leads]);
 
@@ -107,7 +85,6 @@ export default function Board({
     setActionLead(lead);
     setActionAnchor(anchor);
   }
-
   function closeActions() {
     setActionLead(null);
     setActionAnchor(null);
@@ -119,10 +96,8 @@ export default function Board({
 
     const activeId = String(active.id);
     const overId = String(over.id);
-
     if (activeId === overId) return;
 
-    // find source & destination columns
     let fromStatusId: string | null = null;
     let toStatusId: string | null = null;
 
@@ -132,7 +107,6 @@ export default function Board({
       if (ids.includes(overId)) toStatusId = s.id;
     }
 
-    // if dropped into empty column area (over is column id)
     if (!toStatusId && orderByStatus[overId]) {
       toStatusId = overId;
     }
@@ -146,21 +120,16 @@ export default function Board({
     const newIndex = toIds.indexOf(overId);
 
     if (fromStatusId === toStatusId) {
-      // reorder within same column
       const reordered = arrayMove(fromIds, oldIndex, newIndex < 0 ? fromIds.length - 1 : newIndex);
-      const next = { ...orderByStatus, [fromStatusId]: reordered };
-      setOrderByStatus(next);
+      setOrderByStatus((prev) => ({ ...prev, [fromStatusId!]: reordered }));
 
-      // optimistic leads positions
       setLeads((prev) =>
         prev.map((l) => {
           if (l.status_id !== fromStatusId) return l;
-          const pos = reordered.indexOf(l.id);
-          return { ...l, position: pos };
+          return { ...l, position: reordered.indexOf(l.id) };
         })
       );
 
-      // persist (server)
       await moveLeadAction({
         fromStatusId,
         toStatusId,
@@ -171,20 +140,16 @@ export default function Board({
       return;
     }
 
-    // move between columns
     fromIds.splice(oldIndex, 1);
-
     const insertIndex = newIndex >= 0 ? newIndex : toIds.length;
     toIds.splice(insertIndex, 0, activeId);
 
-    const next = {
-      ...orderByStatus,
-      [fromStatusId]: fromIds,
-      [toStatusId]: toIds,
-    };
-    setOrderByStatus(next);
+    setOrderByStatus((prev) => ({
+      ...prev,
+      [fromStatusId!]: fromIds,
+      [toStatusId!]: toIds,
+    }));
 
-    // optimistic update lead's status_id + positions
     setLeads((prev) =>
       prev.map((l) => {
         if (l.id === activeId) return { ...l, status_id: toStatusId!, position: insertIndex };
@@ -194,7 +159,6 @@ export default function Board({
       })
     );
 
-    // persist
     await moveLeadAction({
       fromStatusId,
       toStatusId,
@@ -205,16 +169,10 @@ export default function Board({
 
   const firstStatusId = statuses?.[0]?.id ?? "";
 
-  // Actions menu positioning (simple)
   const menuStyle: React.CSSProperties | undefined = actionAnchor
     ? (() => {
         const rect = actionAnchor.getBoundingClientRect();
-        return {
-          position: "fixed",
-          top: rect.bottom + 8,
-          left: rect.left,
-          zIndex: 60,
-        };
+        return { position: "fixed", top: rect.bottom + 8, left: rect.left, zIndex: 60 };
       })()
     : undefined;
 
@@ -222,17 +180,15 @@ export default function Board({
     navigator.clipboard?.writeText(text).catch(() => {});
   }
 
-  function openWhatsApp(phone: string | null, name: string) {
+  function openWhatsApp(phone: string | null, name: string | null) {
     if (!phone) return;
-    const msg = encodeURIComponent(`Hi ${name}, regarding your travel inquiry...`);
-    // wa.me expects digits mostly; keep simple
+    const msg = encodeURIComponent(`Hi ${name ?? ""}, regarding your travel inquiry...`);
     const digits = phone.replace(/[^\d]/g, "");
     window.open(`https://wa.me/${digits}?text=${msg}`, "_blank");
   }
 
   return (
     <div className="mt-5">
-      {/* Top bar inside board */}
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="text-sm text-zinc-600">
           Tip: Drag only from the <span className="font-semibold">Drag</span> handle.
@@ -244,8 +200,6 @@ export default function Board({
             onCreated={(newLead) => {
               const lead = normalizeLead(newLead);
               setLeads((prev) => [lead, ...prev]);
-
-              // put in first column top (and fix ordering)
               setOrderByStatus((prev) => {
                 const cur = prev[firstStatusId] ?? [];
                 return { ...prev, [firstStatusId]: [lead.id, ...cur] };
@@ -290,10 +244,10 @@ export default function Board({
               </button>
             </div>
 
-            <div className="p-5 space-y-3">
+            <div className="space-y-3 p-5">
               <div>
                 <div className="text-xs text-zinc-500">Name</div>
-                <div className="font-semibold text-zinc-900">{viewLead.full_name || "—"}</div>
+                <div className="font-semibold text-zinc-900">{viewLead.full_name ?? "—"}</div>
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -322,9 +276,7 @@ export default function Board({
                 <button
                   type="button"
                   className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
-                  onClick={() => {
-                    if (viewLead.phone) window.open(`tel:${viewLead.phone}`, "_self");
-                  }}
+                  onClick={() => viewLead.phone && window.open(`tel:${viewLead.phone}`, "_self")}
                 >
                   Call
                 </button>
@@ -352,13 +304,16 @@ export default function Board({
       {actionLead && actionAnchor && (
         <>
           <div className="fixed inset-0 z-50" onMouseDown={closeActions} />
-          <div style={menuStyle} className="z-[60] w-56 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
+          <div
+            style={menuStyle}
+            className="z-[60] w-56 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg"
+          >
             <button
               type="button"
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
               onClick={() => {
                 closeActions();
-                if (actionLead.phone) window.open(`tel:${actionLead.phone}`, "_self");
+                actionLead.phone && window.open(`tel:${actionLead.phone}`, "_self");
               }}
             >
               Call
@@ -380,7 +335,7 @@ export default function Board({
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
               onClick={() => {
                 closeActions();
-                if (actionLead.email) window.open(`mailto:${actionLead.email}`, "_self");
+                actionLead.email && window.open(`mailto:${actionLead.email}`, "_self");
               }}
             >
               Email
