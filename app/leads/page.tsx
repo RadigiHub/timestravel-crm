@@ -41,28 +41,6 @@ export default async function LeadsPage() {
     );
   }
 
-  // IMPORTANT: map to our stable types (no undefined)
-  const safeStatuses: LeadStatus[] = (statuses ?? []).map((s: any) => ({
-    id: String(s.id),
-    label: String(s.label ?? ""),
-    position: Number(s.position ?? 0),
-    color: s.color ?? null,
-  }));
-
-  const safeLeads: Lead[] = (leads ?? []).map((l: any) => ({
-    id: String(l.id),
-    full_name: l.full_name ?? null,
-    phone: l.phone ?? null,
-    email: l.email ?? null,
-    source: l.source ?? null,
-    status_id: String(l.status_id),
-    position: Number(l.position ?? 0),
-    priority: (l.priority ?? "warm") as any,
-    assigned_to: l.assigned_to ?? null,
-    created_at: l.created_at ?? null,
-    updated_at: l.updated_at ?? null,
-  }));
-
   return (
     <div className="min-h-screen bg-zinc-50">
       <div className="mx-auto max-w-[1400px] px-4 py-6">
@@ -81,7 +59,10 @@ export default async function LeadsPage() {
         </div>
 
         <div className="mt-5">
-          <Board statuses={safeStatuses} initialLeads={safeLeads} />
+          <Board
+            statuses={(statuses ?? []) as LeadStatus[]}
+            initialLeads={(leads ?? []) as Lead[]}
+          />
         </div>
       </div>
     </div>
