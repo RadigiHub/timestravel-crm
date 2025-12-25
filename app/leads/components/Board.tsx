@@ -18,17 +18,17 @@ import type { Lead, LeadStatus } from "../actions";
 
 function normalizeLead(l: any): Lead {
   return {
-    id: String(l.id),
+    id: l.id,
     full_name: l.full_name ?? null,
     phone: l.phone ?? null,
     email: l.email ?? null,
     source: l.source ?? null,
-    status_id: String(l.status_id),
-    position: Number(l.position ?? 0),
+    status_id: l.status_id,
+    position: typeof l.position === "number" ? l.position : Number(l.position ?? 0),
     priority: (l.priority ?? "warm") as any,
     assigned_to: l.assigned_to ?? null,
-    created_at: l.created_at ?? "",
-    updated_at: l.updated_at ?? "",
+    created_at: l.created_at ?? null,
+    updated_at: l.updated_at ?? null,
   };
 }
 
@@ -40,14 +40,16 @@ export default function Board({
   initialLeads: Lead[];
 }) {
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    })
   );
 
   const [leads, setLeads] = React.useState<Lead[]>(
     (initialLeads ?? []).map(normalizeLead)
   );
 
-  const leadsById = React.useMemo<Record<string, Lead>>(() => {
+  const leadsById = React.useMemo(() => {
     const map: Record<string, Lead> = {};
     for (const l of leads) map[l.id] = l;
     return map;
@@ -61,7 +63,7 @@ export default function Board({
 
     const sorted = [...leads].sort((a, b) => {
       if (a.status_id === b.status_id) return (a.position ?? 0) - (b.position ?? 0);
-      return a.status_id.localeCompare(b.status_id);
+      return String(a.status_id).localeCompare(String(b.status_id));
     });
 
     for (const l of sorted) {
@@ -82,6 +84,7 @@ export default function Board({
     setActionLead(lead);
     setActionAnchor(anchor);
   }
+
   function closeActions() {
     setActionLead(null);
     setActionAnchor(null);
@@ -105,17 +108,20 @@ export default function Board({
     }
 
     if (!toStatusId && orderByStatus[overId]) toStatusId = overId;
+
     if (!fromStatusId || !toStatusId) return;
 
     const fromIds = [...(orderByStatus[fromStatusId] ?? [])];
-    const toIds = fromStatusId === toStatusId ? fromIds : [...(orderByStatus[toStatusId] ?? [])];
+    const toIds =
+      fromStatusId === toStatusId ? fromIds : [...(orderByStatus[toStatusId] ?? [])];
 
     const oldIndex = fromIds.indexOf(activeId);
     const newIndex = toIds.indexOf(overId);
 
     if (fromStatusId === toStatusId) {
       const reordered = arrayMove(fromIds, oldIndex, newIndex < 0 ? fromIds.length - 1 : newIndex);
-      setOrderByStatus({ ...orderByStatus, [fromStatusId]: reordered });
+
+      setOrderByStatus((prev) => ({ ...prev, [fromStatusId!]: reordered }));
 
       setLeads((prev) =>
         prev.map((l) => {
@@ -138,11 +144,11 @@ export default function Board({
     const insertIndex = newIndex >= 0 ? newIndex : toIds.length;
     toIds.splice(insertIndex, 0, activeId);
 
-    setOrderByStatus({
-      ...orderByStatus,
-      [fromStatusId]: fromIds,
-      [toStatusId]: toIds,
-    });
+    setOrderByStatus((prev) => ({
+      ...prev,
+      [fromStatusId!]: fromIds,
+      [toStatusId!]: toIds,
+    }));
 
     setLeads((prev) =>
       prev.map((l) => {
@@ -171,7 +177,7 @@ export default function Board({
     : undefined;
 
   function copyText(text: string) {
-    navigator.clipboard?.writeText(text ?? "").catch(() => {});
+    navigator.clipboard?.writeText(text).catch(() => {});
   }
 
   function openWhatsApp(phone: string | null, name: string | null) {
@@ -262,7 +268,7 @@ export default function Board({
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Priority</div>
-                  <div className="text-sm text-zinc-800 capitalize">{viewLead.priority}</div>
+                  <div className="text-sm text-zinc-800 capitalize">{viewLead.priority ?? "warm"}</div>
                 </div>
               </div>
 
@@ -276,6 +282,7 @@ export default function Board({
                 >
                   Call
                 </button>
+
                 <button
                   type="button"
                   className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
@@ -283,6 +290,7 @@ export default function Board({
                 >
                   WhatsApp
                 </button>
+
                 <button
                   type="button"
                   className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
