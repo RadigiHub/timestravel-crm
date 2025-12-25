@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export type LeadStatus = {
@@ -16,11 +17,20 @@ export type Lead = {
   email: string | null;
   source: string | null;
   status_id: string;
-  position: number | null;
+  position: number;
   priority: "hot" | "warm" | "cold" | null;
   assigned_to: string | null;
-  created_at: string | null;
-  updated_at: string | null;
+  created_at: string;
+  updated_at: string;
+
+  // OPTIONAL travel fields (sirf agar tumhari table me hain)
+  departure?: string | null;
+  destination?: string | null;
+  depart_date?: string | null;
+  return_date?: string | null;
+  pax_adults?: number | null;
+  pax_children?: number | null;
+  pax_infants?: number | null;
 };
 
 export type CreateLeadInput = {
@@ -28,31 +38,70 @@ export type CreateLeadInput = {
   phone?: string | null;
   email?: string | null;
   source?: string | null;
-  priority?: "hot" | "warm" | "cold" | null;
+  priority?: "hot" | "warm" | "cold";
   status_id: string;
-  assigned_to?: string | null;
+
+  // OPTIONAL travel fields
+  departure?: string | null;
+  destination?: string | null;
+  depart_date?: string | null;
+  return_date?: string | null;
+  pax_adults?: number | null;
+  pax_children?: number | null;
+  pax_infants?: number | null;
 };
 
-export async function createLeadAction(input: CreateLeadInput) {
+export type CreateLeadResult =
+  | { ok: true; lead: Lead }
+  | { ok: false; error: string };
+
+export async function createLeadAction(input: CreateLeadInput): Promise<CreateLeadResult> {
   try {
     const supabase = await supabaseServer();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return { ok: false, error: "Unauthorized" };
 
-    const payload = {
-      full_name: input.full_name?.trim() || null,
+    const full_name = (input.full_name ?? "").trim();
+    if (!full_name) return { ok: false, error: "Full name is required." };
+    if (!input.status_id) return { ok: false, error: "Status is required." };
+
+    // build insert payload (only include optional fields if provided)
+    const payload: Record<string, any> = {
+      full_name,
       phone: input.phone ?? null,
       email: input.email ?? null,
       source: input.source ?? null,
       priority: input.priority ?? "warm",
       status_id: input.status_id,
-      assigned_to: input.assigned_to ?? null,
     };
 
-    if (!payload.full_name) {
-      return { ok: false as const, error: "Full name is required." };
+    const optionalKeys: (keyof CreateLeadInput)[] = [
+      "departure",
+      "destination",
+      "depart_date",
+      "return_date",
+      "pax_adults",
+      "pax_children",
+      "pax_infants",
+    ];
+
+    for (const k of optionalKeys) {
+      if (k in input) payload[k] = (input as any)[k] ?? null;
     }
-    if (!payload.status_id) {
-      return { ok: false as const, error: "Status is required." };
-    }
+
+    // get next position for that status
+    const { data: maxPosRow, error: maxErr } = await supabase
+      .from("leads")
+      .select("position")
+      .eq("status_id", input.status_id)
+      .order("position", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (maxErr) return { ok: false, error: maxErr.message };
+
+    const nextPos = typeof maxPosRow?.position === "number" ? maxPosRow.position + 1 : 0;
+    payload.position = nextPos;
 
     const { data, error } = await supabase
       .from("leads")
@@ -60,57 +109,59 @@ export async function createLeadAction(input: CreateLeadInput) {
       .select("*")
       .single();
 
-    if (error) return { ok: false as const, error: error.message };
+    if (error) return { ok: false, error: error.message };
 
-    return { ok: true as const, lead: data as Lead };
+    revalidatePath("/leads");
+    return { ok: true, lead: data as Lead };
   } catch (e: any) {
-    return { ok: false as const, error: e?.message ?? "Create lead failed." };
+    return { ok: false, error: e?.message ?? "Unknown error" };
   }
 }
 
-export async function moveLeadAction(args: {
+export type MoveLeadInput = {
   fromStatusId: string;
   toStatusId: string;
   fromOrderIds: string[];
   toOrderIds: string[];
-}) {
-  const supabase = await supabaseServer();
+};
 
-  // update positions in source column
-  if (args.fromStatusId) {
-    for (let i = 0; i < args.fromOrderIds.length; i++) {
-      const id = args.fromOrderIds[i];
-      await supabase.from("leads").update({ position: i }).eq("id", id);
-    }
-  }
+export async function moveLeadAction(input: MoveLeadInput): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const supabase = await supabaseServer();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return { ok: false, error: "Unauthorized" };
 
-  // update status + positions in destination column
-  if (args.toStatusId) {
-    for (let i = 0; i < args.toOrderIds.length; i++) {
-      const id = args.toOrderIds[i];
-      await supabase
+    // update "from" column positions
+    for (let i = 0; i < input.fromOrderIds.length; i++) {
+      const id = input.fromOrderIds[i];
+      const { error } = await supabase
         .from("leads")
-        .update({ status_id: args.toStatusId, position: i })
+        .update({
+          status_id: input.fromStatusId,
+          position: i,
+        })
         .eq("id", id);
+
+      if (error) return { ok: false, error: error.message };
     }
+
+    // update "to" column positions
+    for (let i = 0; i < input.toOrderIds.length; i++) {
+      const id = input.toOrderIds[i];
+      const { error } = await supabase
+        .from("leads")
+        .update({
+          status_id: input.toStatusId,
+          position: i,
+        })
+        .eq("id", id);
+
+      if (error) return { ok: false, error: error.message };
+    }
+
+    revalidatePath("/leads");
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Unknown error" };
   }
-
-  return { ok: true as const };
-}
-
-export async function updateLeadAction(args: {
-  id: string;
-  patch: Partial<Pick<Lead, "full_name" | "phone" | "email" | "source" | "priority" | "assigned_to">>;
-}) {
-  const supabase = await supabaseServer();
-
-  const { data, error } = await supabase
-    .from("leads")
-    .update(args.patch)
-    .eq("id", args.id)
-    .select("*")
-    .single();
-
-  if (error) return { ok: false as const, error: error.message };
-  return { ok: true as const, lead: data as Lead };
 }
