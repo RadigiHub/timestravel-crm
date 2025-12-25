@@ -4,20 +4,7 @@ import * as React from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import LeadCard from "./LeadCard";
-
-type Lead = {
-  id: string;
-  full_name: string;
-  phone: string | null;
-  email: string | null;
-  source: string | null;
-  status_id: string;
-  position: number;
-  priority: "hot" | "warm" | "cold";
-  assigned_to: string | null;
-  created_at: string;
-  updated_at: string;
-};
+import type { Lead } from "../actions";
 
 export default function SortableLeadCard({
   lead,
@@ -26,7 +13,7 @@ export default function SortableLeadCard({
 }: {
   lead: Lead;
   onView: (lead: Lead) => void;
-  onAction: (lead: Lead, anchorEl: HTMLButtonElement) => void;
+  onAction: (lead: Lead, anchor: HTMLButtonElement) => void;
 }) {
   const {
     attributes,
@@ -43,15 +30,14 @@ export default function SortableLeadCard({
     opacity: isDragging ? 0.7 : 1,
   };
 
-  // We attach listeners ONLY to drag handle button (not the whole card)
-  const dragHandleProps = {
-    ...attributes,
-    ...listeners,
-  };
-
   return (
-    <div ref={setNodeRef} style={style} className="select-none">
-      <LeadCard lead={lead} onView={onView} onAction={onAction} dragHandleProps={dragHandleProps} />
+    <div ref={setNodeRef} style={style}>
+      <LeadCard
+        lead={lead}
+        onView={onView}
+        onAction={onAction}
+        dragHandleProps={{ ...attributes, ...listeners }}
+      />
     </div>
   );
 }
