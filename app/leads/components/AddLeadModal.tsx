@@ -30,9 +30,10 @@ export default function AddLeadModal({
             if (e.target === e.currentTarget) setOpen(false);
           }}
         >
-          {/* IMPORTANT: max-h + overflow */}
+          {/* Modal shell */}
           <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl max-h-[85vh] overflow-hidden">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+            {/* Header sticky */}
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-white px-5 py-4">
               <div className="text-base font-semibold text-zinc-900">Add New Lead</div>
               <button
                 type="button"
@@ -43,7 +44,7 @@ export default function AddLeadModal({
               </button>
             </div>
 
-            {/* scrollable body */}
+            {/* Body scroll */}
             <div className="p-5 overflow-y-auto max-h-[calc(85vh-64px)]">
               <AddLeadForm
                 defaultStatusId={defaultStatusId}
