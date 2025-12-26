@@ -30,7 +30,8 @@ export default function AddLeadModal({
             if (e.target === e.currentTarget) setOpen(false);
           }}
         >
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
+          {/* IMPORTANT: max-h + overflow */}
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl max-h-[85vh] overflow-hidden">
             <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
               <div className="text-base font-semibold text-zinc-900">Add New Lead</div>
               <button
@@ -42,7 +43,8 @@ export default function AddLeadModal({
               </button>
             </div>
 
-            <div className="p-5">
+            {/* scrollable body */}
+            <div className="p-5 overflow-y-auto max-h-[calc(85vh-64px)]">
               <AddLeadForm
                 defaultStatusId={defaultStatusId}
                 onCancel={() => setOpen(false)}
