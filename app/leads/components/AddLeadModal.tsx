@@ -25,36 +25,33 @@ export default function AddLeadModal({
 
       {open && (
         <div
-          className="fixed inset-0 z-50 bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) setOpen(false);
           }}
         >
-          <div className="mx-auto flex h-full max-w-2xl items-center justify-center">
-            <div className="w-full overflow-hidden rounded-2xl bg-white shadow-xl">
-              {/* Sticky header */}
-              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-white px-5 py-4">
-                <div className="text-base font-semibold text-zinc-900">Add New Lead</div>
-                <button
-                  type="button"
-                  className="rounded-lg px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100"
-                  onClick={() => setOpen(false)}
-                >
-                  ✕
-                </button>
-              </div>
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+              <div className="text-base font-semibold text-zinc-900">Add New Lead</div>
+              <button
+                type="button"
+                className="rounded-lg px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100"
+                onClick={() => setOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
 
-              {/* Scrollable body */}
-              <div className="max-h-[80vh] overflow-y-auto p-5">
-                <AddLeadForm
-                  defaultStatusId={defaultStatusId}
-                  onCancel={() => setOpen(false)}
-                  onCreated={(lead) => {
-                    onCreated(lead);
-                    setOpen(false);
-                  }}
-                />
-              </div>
+            {/* ✅ scroll area so form never cuts */}
+            <div className="max-h-[80vh] overflow-y-auto p-5">
+              <AddLeadForm
+                defaultStatusId={defaultStatusId}
+                onCancel={() => setOpen(false)}
+                onCreated={(lead) => {
+                  onCreated(lead);
+                  setOpen(false);
+                }}
+              />
             </div>
           </div>
         </div>
