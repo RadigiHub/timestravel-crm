@@ -12,35 +12,31 @@ export type LeadStatus = {
 
 export type Lead = {
   id: string;
-  full_name: string; // NOT NULL in DB
+  full_name: string | null;
   phone: string | null;
   email: string | null;
   source: string | null;
   status_id: string;
   position: number;
-  priority: "hot" | "warm" | "cold";
+  priority: "hot" | "warm" | "cold" | null;
   assigned_to: string | null;
-
   created_by: string | null;
   last_activity_at: string | null;
-
   created_at: string;
   updated_at: string;
 
-  // extra CRM fields
-  details: Record<string, any>; // jsonb
+  details: any; // jsonb
 
-  trip_type: "oneway" | "return" | "multicity";
+  // Travel / CRM fields (as per your Supabase schema)
+  trip_type: "oneway" | "return" | "multicity" | null;
   departure: string | null;
   destination: string | null;
-  depart_date: string | null;   // YYYY-MM-DD
-  return_date: string | null;   // YYYY-MM-DD
-
-  adults: number;
-  children: number;
-  infants: number;
-
-  cabin_class: "economy" | "premium" | "business" | "first";
+  depart_date: string | null; // YYYY-MM-DD
+  return_date: string | null; // YYYY-MM-DD
+  adults: number | null;
+  children: number | null;
+  infants: number | null;
+  cabin_class: "economy" | "premium" | "business" | "first" | null;
   budget: string | null;
   preferred_airline: string | null;
   whatsapp: string | null;
@@ -50,48 +46,35 @@ export type Lead = {
 };
 
 export type CreateLeadInput = {
-  // required
   full_name: string;
-  status_id: string;
-
-  // optional basics
   phone?: string | null;
   email?: string | null;
   source?: string | null;
   priority?: "hot" | "warm" | "cold";
-  assigned_to?: string | null;
+  status_id: string;
 
-  // travel / CRM
-  trip_type?: "oneway" | "return" | "multicity";
+  // Extra fields (all optional)
+  trip_type?: "oneway" | "return" | "multicity" | null;
   departure?: string | null;
   destination?: string | null;
-  depart_date?: string | null;   // YYYY-MM-DD
-  return_date?: string | null;   // YYYY-MM-DD
-
-  adults?: number;
-  children?: number;
-  infants?: number;
-
-  cabin_class?: "economy" | "premium" | "business" | "first";
+  depart_date?: string | null; // YYYY-MM-DD
+  return_date?: string | null; // YYYY-MM-DD
+  adults?: number | null;
+  children?: number | null;
+  infants?: number | null;
+  cabin_class?: "economy" | "premium" | "business" | "first" | null;
   budget?: string | null;
   preferred_airline?: string | null;
   whatsapp?: string | null;
   notes?: string | null;
   follow_up_date?: string | null; // YYYY-MM-DD
   whatsapp_text?: string | null;
-
-  // json extra
-  details?: Record<string, any>;
+  details?: any; // jsonb
 };
 
 export type CreateLeadResult =
   | { ok: true; lead: Lead }
   | { ok: false; error: string };
-
-function toIntSafe(v: any, fallback: number) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : fallback;
-}
 
 export async function createLeadAction(input: CreateLeadInput): Promise<CreateLeadResult> {
   try {
@@ -101,15 +84,13 @@ export async function createLeadAction(input: CreateLeadInput): Promise<CreateLe
 
     const full_name = (input.full_name ?? "").trim();
     if (!full_name) return { ok: false, error: "Full name is required." };
+    if (!input.status_id) return { ok: false, error: "Status is required." };
 
-    const status_id = (input.status_id ?? "").trim();
-    if (!status_id) return { ok: false, error: "Status is required." };
-
-    // next position for that status
+    // Get next position for this status
     const { data: maxPosRow, error: maxErr } = await supabase
       .from("leads")
       .select("position")
-      .eq("status_id", status_id)
+      .eq("status_id", input.status_id)
       .order("position", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -118,41 +99,43 @@ export async function createLeadAction(input: CreateLeadInput): Promise<CreateLe
 
     const nextPos = typeof maxPosRow?.position === "number" ? maxPosRow.position + 1 : 0;
 
+    // Build payload (match DB column names)
     const payload: Record<string, any> = {
       full_name,
-      status_id,
-      position: nextPos,
-
       phone: input.phone ?? null,
       email: input.email ?? null,
       source: input.source ?? null,
-
       priority: input.priority ?? "warm",
-      assigned_to: input.assigned_to ?? null,
+      status_id: input.status_id,
+      position: nextPos,
 
-      trip_type: input.trip_type ?? "return",
-      departure: input.departure ?? null,
-      destination: input.destination ?? null,
-      depart_date: input.depart_date ?? null,
-      return_date: input.return_date ?? null,
-
-      adults: toIntSafe(input.adults, 1),
-      children: toIntSafe(input.children, 0),
-      infants: toIntSafe(input.infants, 0),
-
-      cabin_class: input.cabin_class ?? "economy",
-      budget: input.budget ?? null,
-      preferred_airline: input.preferred_airline ?? null,
-      whatsapp: input.whatsapp ?? null,
-      notes: input.notes ?? null,
-      follow_up_date: input.follow_up_date ?? null,
-      whatsapp_text: input.whatsapp_text ?? null,
-
-      details: input.details ?? {},
+      created_by: auth.user.id, // optional but useful
+      // assigned_to left null by default
     };
 
-    // created_by column exists; set it (safe)
-    payload.created_by = auth.user.id;
+    // Add optional fields only if present in input
+    const optionalKeys: (keyof CreateLeadInput)[] = [
+      "trip_type",
+      "departure",
+      "destination",
+      "depart_date",
+      "return_date",
+      "adults",
+      "children",
+      "infants",
+      "cabin_class",
+      "budget",
+      "preferred_airline",
+      "whatsapp",
+      "notes",
+      "follow_up_date",
+      "whatsapp_text",
+      "details",
+    ];
+
+    for (const k of optionalKeys) {
+      if (k in input) payload[k] = (input as any)[k] ?? null;
+    }
 
     const { data, error } = await supabase
       .from("leads")
@@ -176,9 +159,7 @@ export type MoveLeadInput = {
   toOrderIds: string[];
 };
 
-export async function moveLeadAction(
-  input: MoveLeadInput
-): Promise<{ ok: boolean; error?: string }> {
+export async function moveLeadAction(input: MoveLeadInput): Promise<{ ok: boolean; error?: string }> {
   try {
     const supabase = await supabaseServer();
     const { data: auth } = await supabase.auth.getUser();
@@ -189,7 +170,10 @@ export async function moveLeadAction(
       const id = input.fromOrderIds[i];
       const { error } = await supabase
         .from("leads")
-        .update({ status_id: input.fromStatusId, position: i })
+        .update({
+          status_id: input.fromStatusId,
+          position: i,
+        })
         .eq("id", id);
 
       if (error) return { ok: false, error: error.message };
@@ -200,7 +184,10 @@ export async function moveLeadAction(
       const id = input.toOrderIds[i];
       const { error } = await supabase
         .from("leads")
-        .update({ status_id: input.toStatusId, position: i })
+        .update({
+          status_id: input.toStatusId,
+          position: i,
+        })
         .eq("id", id);
 
       if (error) return { ok: false, error: error.message };
