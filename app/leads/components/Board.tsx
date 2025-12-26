@@ -18,25 +18,37 @@ import type { Lead, LeadStatus } from "../actions";
 
 function normalizeLead(l: any): Lead {
   return {
-    id: String(l.id),
+    id: l.id,
     full_name: l.full_name ?? null,
     phone: l.phone ?? null,
     email: l.email ?? null,
     source: l.source ?? null,
-    status_id: String(l.status_id),
+    status_id: l.status_id,
     position: Number(l.position ?? 0),
     priority: (l.priority ?? "warm") as any,
     assigned_to: l.assigned_to ?? null,
+    created_by: l.created_by ?? null,
+    last_activity_at: l.last_activity_at ?? null,
     created_at: l.created_at ?? "",
     updated_at: l.updated_at ?? "",
 
+    details: l.details ?? {},
+
+    trip_type: (l.trip_type ?? null) as any,
     departure: l.departure ?? null,
     destination: l.destination ?? null,
     depart_date: l.depart_date ?? null,
     return_date: l.return_date ?? null,
-    pax_adults: l.pax_adults ?? null,
-    pax_children: l.pax_children ?? null,
-    pax_infants: l.pax_infants ?? null,
+    adults: typeof l.adults === "number" ? l.adults : l.adults ?? null,
+    children: typeof l.children === "number" ? l.children : l.children ?? null,
+    infants: typeof l.infants === "number" ? l.infants : l.infants ?? null,
+    cabin_class: (l.cabin_class ?? null) as any,
+    budget: l.budget ?? null,
+    preferred_airline: l.preferred_airline ?? null,
+    whatsapp: l.whatsapp ?? null,
+    notes: l.notes ?? null,
+    follow_up_date: l.follow_up_date ?? null,
+    whatsapp_text: l.whatsapp_text ?? null,
   };
 }
 
@@ -49,7 +61,7 @@ export default function Board({
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 }, // click buttons safe, accidental drag avoid
+      activationConstraint: { distance: 6 },
     })
   );
 
@@ -75,16 +87,16 @@ export default function Board({
     });
 
     for (const l of sorted) {
-      if (!l.status_id) continue;
-      if (!next[l.status_id]) next[l.status_id] = [];
-      next[l.status_id].push(l.id);
+      const sid = l.status_id;
+      if (!sid) continue;
+      if (!next[sid]) next[sid] = [];
+      next[sid].push(l.id);
     }
 
     setOrderByStatus(next);
   }, [statuses, leads]);
 
   const [viewLead, setViewLead] = React.useState<Lead | null>(null);
-
   const [actionLead, setActionLead] = React.useState<Lead | null>(null);
   const [actionAnchor, setActionAnchor] = React.useState<HTMLButtonElement | null>(null);
 
@@ -114,7 +126,10 @@ export default function Board({
       if (ids.includes(overId)) toStatusId = s.id;
     }
 
-    if (!toStatusId && orderByStatus[overId]) toStatusId = overId;
+    if (!toStatusId && orderByStatus[overId]) {
+      toStatusId = overId;
+    }
+
     if (!fromStatusId || !toStatusId) return;
 
     const fromIds = [...(orderByStatus[fromStatusId] ?? [])];
@@ -125,12 +140,14 @@ export default function Board({
 
     if (fromStatusId === toStatusId) {
       const reordered = arrayMove(fromIds, oldIndex, newIndex < 0 ? fromIds.length - 1 : newIndex);
-      setOrderByStatus((prev) => ({ ...prev, [fromStatusId!]: reordered }));
+      const next = { ...orderByStatus, [fromStatusId]: reordered };
+      setOrderByStatus(next);
 
       setLeads((prev) =>
         prev.map((l) => {
           if (l.status_id !== fromStatusId) return l;
-          return { ...l, position: reordered.indexOf(l.id) };
+          const pos = reordered.indexOf(l.id);
+          return { ...l, position: pos };
         })
       );
 
@@ -145,14 +162,16 @@ export default function Board({
     }
 
     fromIds.splice(oldIndex, 1);
+
     const insertIndex = newIndex >= 0 ? newIndex : toIds.length;
     toIds.splice(insertIndex, 0, activeId);
 
-    setOrderByStatus((prev) => ({
-      ...prev,
-      [fromStatusId!]: fromIds,
-      [toStatusId!]: toIds,
-    }));
+    const next = {
+      ...orderByStatus,
+      [fromStatusId]: fromIds,
+      [toStatusId]: toIds,
+    };
+    setOrderByStatus(next);
 
     setLeads((prev) =>
       prev.map((l) => {
@@ -176,7 +195,12 @@ export default function Board({
   const menuStyle: React.CSSProperties | undefined = actionAnchor
     ? (() => {
         const rect = actionAnchor.getBoundingClientRect();
-        return { position: "fixed", top: rect.bottom + 8, left: rect.left, zIndex: 60 };
+        return {
+          position: "fixed",
+          top: rect.bottom + 8,
+          left: rect.left,
+          zIndex: 60,
+        };
       })()
     : undefined;
 
@@ -184,12 +208,24 @@ export default function Board({
     navigator.clipboard?.writeText(text).catch(() => {});
   }
 
-  function openWhatsApp(phone: string | null, name: string | null) {
+  function openWhatsApp(phone: string | null, name: string | null, customText?: string | null) {
     if (!phone) return;
-    const msg = encodeURIComponent(`Hi ${name ?? ""}, regarding your travel inquiry...`);
+    const msg = encodeURIComponent(customText?.trim() ? customText.trim() : `Hi ${name ?? ""}, regarding your travel inquiry...`);
     const digits = phone.replace(/[^\d]/g, "");
     window.open(`https://wa.me/${digits}?text=${msg}`, "_blank");
   }
+
+  const paxText = (l: Lead) => {
+    const a = typeof l.adults === "number" ? l.adults : null;
+    const c = typeof l.children === "number" ? l.children : null;
+    const i = typeof l.infants === "number" ? l.infants : null;
+    const parts = [
+      a != null ? `A:${a}` : null,
+      c != null ? `C:${c}` : null,
+      i != null ? `I:${i}` : null,
+    ].filter(Boolean);
+    return parts.length ? parts.join("  ") : "—";
+  };
 
   return (
     <div className="mt-5">
@@ -204,7 +240,6 @@ export default function Board({
             onCreated={(newLead) => {
               const lead = normalizeLead(newLead);
               setLeads((prev) => [lead, ...prev]);
-
               setOrderByStatus((prev) => {
                 const cur = prev[firstStatusId] ?? [];
                 return { ...prev, [firstStatusId]: [lead.id, ...cur] };
@@ -219,11 +254,11 @@ export default function Board({
           {statuses.map((s) => (
             <Column
               key={s.id}
-              status={s}
+              status={s as any}
               leadIds={orderByStatus[s.id] ?? []}
-              leadsById={leadsById}
-              onView={(lead) => setViewLead(lead)}
-              onAction={(lead, anchor) => openActions(lead, anchor)}
+              leadsById={leadsById as any}
+              onView={(lead: Lead) => setViewLead(lead)}
+              onAction={(lead: Lead, anchor: HTMLButtonElement) => openActions(lead, anchor)}
             />
           ))}
         </div>
@@ -237,7 +272,7 @@ export default function Board({
             if (e.target === e.currentTarget) setViewLead(null);
           }}
         >
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
               <div className="text-base font-semibold text-zinc-900">Lead Details</div>
               <button
@@ -249,13 +284,13 @@ export default function Board({
               </button>
             </div>
 
-            <div className="space-y-3 p-5">
+            <div className="p-5 space-y-4">
               <div>
                 <div className="text-xs text-zinc-500">Name</div>
-                <div className="font-semibold text-zinc-900">{viewLead.full_name ?? "—"}</div>
+                <div className="text-lg font-semibold text-zinc-900">{viewLead.full_name ?? "—"}</div>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div>
                   <div className="text-xs text-zinc-500">Phone</div>
                   <div className="text-sm text-zinc-800">{viewLead.phone ?? "—"}</div>
@@ -264,17 +299,73 @@ export default function Board({
                   <div className="text-xs text-zinc-500">Email</div>
                   <div className="text-sm text-zinc-800">{viewLead.email ?? "—"}</div>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div>
                   <div className="text-xs text-zinc-500">Source</div>
                   <div className="text-sm text-zinc-800">{viewLead.source ?? "—"}</div>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div>
-                  <div className="text-xs text-zinc-500">Priority</div>
-                  <div className="text-sm text-zinc-800 capitalize">{viewLead.priority ?? "—"}</div>
+                  <div className="text-xs text-zinc-500">Trip Type</div>
+                  <div className="text-sm text-zinc-800">{viewLead.trip_type ?? "—"}</div>
                 </div>
+                <div>
+                  <div className="text-xs text-zinc-500">Cabin</div>
+                  <div className="text-sm text-zinc-800">{viewLead.cabin_class ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-zinc-500">PAX</div>
+                  <div className="text-sm text-zinc-800">{paxText(viewLead)}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <div className="text-xs text-zinc-500">Route</div>
+                  <div className="text-sm text-zinc-800">
+                    {(viewLead.departure ?? "—")} → {(viewLead.destination ?? "—")}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-zinc-500">Dates</div>
+                  <div className="text-sm text-zinc-800">
+                    {viewLead.depart_date ?? "—"}
+                    {viewLead.return_date ? `  →  ${viewLead.return_date}` : ""}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <div className="text-xs text-zinc-500">Budget</div>
+                  <div className="text-sm text-zinc-800">{viewLead.budget ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-zinc-500">Preferred Airline</div>
+                  <div className="text-sm text-zinc-800">{viewLead.preferred_airline ?? "—"}</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <div className="text-xs text-zinc-500">WhatsApp</div>
+                  <div className="text-sm text-zinc-800">{viewLead.whatsapp ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-zinc-500">Follow-up Date</div>
+                  <div className="text-sm text-zinc-800">{viewLead.follow_up_date ?? "—"}</div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs text-zinc-500">Notes</div>
+                <div className="whitespace-pre-wrap text-sm text-zinc-800">{viewLead.notes ?? "—"}</div>
+              </div>
+
+              <div>
+                <div className="text-xs text-zinc-500">WhatsApp Text</div>
+                <div className="whitespace-pre-wrap text-sm text-zinc-800">{viewLead.whatsapp_text ?? "—"}</div>
               </div>
 
               <div className="flex flex-wrap gap-2 pt-2">
@@ -287,13 +378,15 @@ export default function Board({
                 >
                   Call
                 </button>
+
                 <button
                   type="button"
                   className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
-                  onClick={() => openWhatsApp(viewLead.phone, viewLead.full_name)}
+                  onClick={() => openWhatsApp(viewLead.whatsapp ?? viewLead.phone, viewLead.full_name, viewLead.whatsapp_text)}
                 >
                   WhatsApp
                 </button>
+
                 <button
                   type="button"
                   className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
@@ -328,7 +421,7 @@ export default function Board({
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
               onClick={() => {
                 closeActions();
-                openWhatsApp(actionLead.phone, actionLead.full_name);
+                openWhatsApp(actionLead.whatsapp ?? actionLead.phone, actionLead.full_name, actionLead.whatsapp_text);
               }}
             >
               WhatsApp Message
