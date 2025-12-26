@@ -30,11 +30,13 @@ export default function AddLeadModal({
             if (e.target === e.currentTarget) setOpen(false);
           }}
         >
-          {/* Modal shell */}
-          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl max-h-[85vh] overflow-hidden">
-            {/* Header sticky */}
-            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-200 bg-white px-5 py-4">
-              <div className="text-base font-semibold text-zinc-900">Add New Lead</div>
+          {/* Modal Shell */}
+          <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-xl">
+            {/* Header (sticky feel) */}
+            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+              <div className="text-base font-semibold text-zinc-900">
+                Add New Lead
+              </div>
               <button
                 type="button"
                 className="rounded-lg px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100"
@@ -44,8 +46,8 @@ export default function AddLeadModal({
               </button>
             </div>
 
-            {/* Body scroll */}
-            <div className="p-5 overflow-y-auto max-h-[calc(85vh-64px)]">
+            {/* Scrollable body */}
+            <div className="max-h-[85vh] overflow-y-auto p-5">
               <AddLeadForm
                 defaultStatusId={defaultStatusId}
                 onCancel={() => setOpen(false)}
