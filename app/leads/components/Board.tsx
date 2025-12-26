@@ -49,7 +49,7 @@ function normalizeLead(l: any): Lead {
     notes: l.notes ?? null,
     follow_up_date: l.follow_up_date ?? null,
     whatsapp_text: l.whatsapp_text ?? null,
-  } as Lead;
+  };
 }
 
 export default function Board({
@@ -75,17 +75,14 @@ export default function Board({
     return map;
   }, [leads]);
 
-  const [orderByStatus, setOrderByStatus] = React.useState<
-    Record<string, string[]>
-  >({});
+  const [orderByStatus, setOrderByStatus] = React.useState<Record<string, string[]>>({});
 
   React.useEffect(() => {
     const next: Record<string, string[]> = {};
     for (const s of statuses) next[s.id] = [];
 
     const sorted = [...leads].sort((a, b) => {
-      if (a.status_id === b.status_id)
-        return (a.position ?? 0) - (b.position ?? 0);
+      if (a.status_id === b.status_id) return (a.position ?? 0) - (b.position ?? 0);
       return a.status_id.localeCompare(b.status_id);
     });
 
@@ -101,8 +98,7 @@ export default function Board({
 
   const [viewLead, setViewLead] = React.useState<Lead | null>(null);
   const [actionLead, setActionLead] = React.useState<Lead | null>(null);
-  const [actionAnchor, setActionAnchor] =
-    React.useState<HTMLButtonElement | null>(null);
+  const [actionAnchor, setActionAnchor] = React.useState<HTMLButtonElement | null>(null);
 
   function openActions(lead: Lead, anchor: HTMLButtonElement) {
     setActionLead(lead);
@@ -130,7 +126,6 @@ export default function Board({
       if (ids.includes(overId)) toStatusId = s.id;
     }
 
-    // if dropped on column itself (overId == status id)
     if (!toStatusId && orderByStatus[overId]) {
       toStatusId = overId;
     }
@@ -138,22 +133,13 @@ export default function Board({
     if (!fromStatusId || !toStatusId) return;
 
     const fromIds = [...(orderByStatus[fromStatusId] ?? [])];
-    const toIds =
-      fromStatusId === toStatusId
-        ? fromIds
-        : [...(orderByStatus[toStatusId] ?? [])];
+    const toIds = fromStatusId === toStatusId ? fromIds : [...(orderByStatus[toStatusId] ?? [])];
 
     const oldIndex = fromIds.indexOf(activeId);
     const newIndex = toIds.indexOf(overId);
 
-    // same column reorder
     if (fromStatusId === toStatusId) {
-      const reordered = arrayMove(
-        fromIds,
-        oldIndex,
-        newIndex < 0 ? fromIds.length - 1 : newIndex
-      );
-
+      const reordered = arrayMove(fromIds, oldIndex, newIndex < 0 ? fromIds.length - 1 : newIndex);
       const next = { ...orderByStatus, [fromStatusId]: reordered };
       setOrderByStatus(next);
 
@@ -171,10 +157,10 @@ export default function Board({
         fromOrderIds: reordered,
         toOrderIds: reordered,
       });
+
       return;
     }
 
-    // move across columns
     fromIds.splice(oldIndex, 1);
 
     const insertIndex = newIndex >= 0 ? newIndex : toIds.length;
@@ -189,12 +175,9 @@ export default function Board({
 
     setLeads((prev) =>
       prev.map((l) => {
-        if (l.id === activeId)
-          return { ...l, status_id: toStatusId!, position: insertIndex };
-        if (l.status_id === fromStatusId)
-          return { ...l, position: fromIds.indexOf(l.id) };
-        if (l.status_id === toStatusId)
-          return { ...l, position: toIds.indexOf(l.id) };
+        if (l.id === activeId) return { ...l, status_id: toStatusId!, position: insertIndex };
+        if (l.status_id === fromStatusId) return { ...l, position: fromIds.indexOf(l.id) };
+        if (l.status_id === toStatusId) return { ...l, position: toIds.indexOf(l.id) };
         return l;
       })
     );
@@ -225,11 +208,7 @@ export default function Board({
     navigator.clipboard?.writeText(text).catch(() => {});
   }
 
-  function openWhatsApp(
-    phone: string | null,
-    name: string | null,
-    customText?: string | null
-  ) {
+  function openWhatsApp(phone: string | null, name: string | null, customText?: string | null) {
     if (!phone) return;
     const msg = encodeURIComponent(
       customText?.trim()
@@ -241,18 +220,10 @@ export default function Board({
   }
 
   const paxText = (l: Lead) => {
-    const a = typeof (l as any).adults === "number" ? (l as any).adults : null;
-    const c =
-      typeof (l as any).children === "number" ? (l as any).children : null;
-    const i =
-      typeof (l as any).infants === "number" ? (l as any).infants : null;
-
-    const parts = [
-      a != null ? `A:${a}` : null,
-      c != null ? `C:${c}` : null,
-      i != null ? `I:${i}` : null,
-    ].filter(Boolean);
-
+    const a = typeof l.adults === "number" ? l.adults : null;
+    const c = typeof l.children === "number" ? l.children : null;
+    const i = typeof l.infants === "number" ? l.infants : null;
+    const parts = [a != null ? `A:${a}` : null, c != null ? `C:${c}` : null, i != null ? `I:${i}` : null].filter(Boolean);
     return parts.length ? parts.join("  ") : "—";
   };
 
@@ -260,8 +231,7 @@ export default function Board({
     <div className="mt-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="text-sm text-zinc-600">
-          Tip: Drag only from the <span className="font-semibold">Drag</span>{" "}
-          handle.
+          Tip: Drag only from the <span className="font-semibold">Drag</span> handle.
         </div>
 
         {firstStatusId ? (
@@ -279,11 +249,7 @@ export default function Board({
         ) : null}
       </div>
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={onDragEnd}
-      >
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
           {statuses.map((s) => (
             <Column
@@ -292,9 +258,7 @@ export default function Board({
               leadIds={orderByStatus[s.id] ?? []}
               leadsById={leadsById as any}
               onView={(lead: Lead) => setViewLead(lead)}
-              onAction={(lead: Lead, anchor: HTMLButtonElement) =>
-                openActions(lead, anchor)
-              }
+              onAction={(lead: Lead, anchor: HTMLButtonElement) => openActions(lead, anchor)}
             />
           ))}
         </div>
@@ -308,11 +272,9 @@ export default function Board({
             if (e.target === e.currentTarget) setViewLead(null);
           }}
         >
-          <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-xl">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-              <div className="text-base font-semibold text-zinc-900">
-                Lead Details
-              </div>
+              <div className="text-base font-semibold text-zinc-900">Lead Details</div>
               <button
                 type="button"
                 className="rounded-lg px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100"
@@ -322,47 +284,35 @@ export default function Board({
               </button>
             </div>
 
-            <div className="max-h-[85vh] overflow-y-auto p-5 space-y-4">
+            <div className="space-y-4 p-5">
               <div>
                 <div className="text-xs text-zinc-500">Name</div>
-                <div className="text-lg font-semibold text-zinc-900">
-                  {viewLead.full_name ?? "—"}
-                </div>
+                <div className="text-lg font-semibold text-zinc-900">{viewLead.full_name ?? "—"}</div>
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div>
                   <div className="text-xs text-zinc-500">Phone</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.phone ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.phone ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Email</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.email ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.email ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Source</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.source ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.source ?? "—"}</div>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div>
                   <div className="text-xs text-zinc-500">Trip Type</div>
-                  <div className="text-sm text-zinc-800">
-                    {(viewLead as any).trip_type ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.trip_type ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Cabin</div>
-                  <div className="text-sm text-zinc-800">
-                    {(viewLead as any).cabin_class ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.cabin_class ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">PAX</div>
@@ -374,17 +324,14 @@ export default function Board({
                 <div>
                   <div className="text-xs text-zinc-500">Route</div>
                   <div className="text-sm text-zinc-800">
-                    {(viewLead as any).departure ?? "—"} →{" "}
-                    {(viewLead as any).destination ?? "—"}
+                    {(viewLead.departure ?? "—")} → {(viewLead.destination ?? "—")}
                   </div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Dates</div>
                   <div className="text-sm text-zinc-800">
-                    {(viewLead as any).depart_date ?? "—"}
-                    {(viewLead as any).return_date
-                      ? `  →  ${(viewLead as any).return_date}`
-                      : ""}
+                    {viewLead.depart_date ?? "—"}
+                    {viewLead.return_date ? `  →  ${viewLead.return_date}` : ""}
                   </div>
                 </div>
               </div>
@@ -392,45 +339,33 @@ export default function Board({
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div>
                   <div className="text-xs text-zinc-500">Budget</div>
-                  <div className="text-sm text-zinc-800">
-                    {(viewLead as any).budget ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.budget ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Preferred Airline</div>
-                  <div className="text-sm text-zinc-800">
-                    {(viewLead as any).preferred_airline ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.preferred_airline ?? "—"}</div>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div>
                   <div className="text-xs text-zinc-500">WhatsApp</div>
-                  <div className="text-sm text-zinc-800">
-                    {(viewLead as any).whatsapp ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.whatsapp ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Follow-up Date</div>
-                  <div className="text-sm text-zinc-800">
-                    {(viewLead as any).follow_up_date ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.follow_up_date ?? "—"}</div>
                 </div>
               </div>
 
               <div>
                 <div className="text-xs text-zinc-500">Notes</div>
-                <div className="whitespace-pre-wrap text-sm text-zinc-800">
-                  {(viewLead as any).notes ?? "—"}
-                </div>
+                <div className="whitespace-pre-wrap text-sm text-zinc-800">{viewLead.notes ?? "—"}</div>
               </div>
 
               <div>
                 <div className="text-xs text-zinc-500">WhatsApp Text</div>
-                <div className="whitespace-pre-wrap text-sm text-zinc-800">
-                  {(viewLead as any).whatsapp_text ?? "—"}
-                </div>
+                <div className="whitespace-pre-wrap text-sm text-zinc-800">{viewLead.whatsapp_text ?? "—"}</div>
               </div>
 
               <div className="flex flex-wrap gap-2 pt-2">
@@ -448,11 +383,7 @@ export default function Board({
                   type="button"
                   className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
                   onClick={() =>
-                    openWhatsApp(
-                      (viewLead as any).whatsapp ?? viewLead.phone,
-                      viewLead.full_name,
-                      (viewLead as any).whatsapp_text
-                    )
+                    openWhatsApp(viewLead.whatsapp ?? viewLead.phone, viewLead.full_name, viewLead.whatsapp_text)
                   }
                 >
                   WhatsApp
@@ -475,10 +406,7 @@ export default function Board({
       {actionLead && actionAnchor && (
         <>
           <div className="fixed inset-0 z-50" onMouseDown={closeActions} />
-          <div
-            style={menuStyle}
-            className="z-[60] w-56 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg"
-          >
+          <div style={menuStyle} className="z-[60] w-56 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
             <button
               type="button"
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
@@ -495,11 +423,7 @@ export default function Board({
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
               onClick={() => {
                 closeActions();
-                openWhatsApp(
-                  (actionLead as any).whatsapp ?? actionLead.phone,
-                  actionLead.full_name,
-                  (actionLead as any).whatsapp_text
-                );
+                openWhatsApp(actionLead.whatsapp ?? actionLead.phone, actionLead.full_name, actionLead.whatsapp_text);
               }}
             >
               WhatsApp Message
