@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { createLeadAction } from "../actions";
-import type { Lead, CreateLeadInput, CreateLeadResult } from "../actions";
+import { createLeadAction, getAgentsAction } from "../actions";
+import type { Lead, CreateLeadInput, CreateLeadResult, Agent } from "../actions";
 
 export default function AddLeadForm({
   defaultStatusId,
@@ -13,44 +13,57 @@ export default function AddLeadForm({
   onCreated: (lead: Lead) => void;
   onCancel: () => void;
 }) {
-  // Basic
+  // basic
   const [full_name, setFullName] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [source, setSource] = React.useState("web");
   const [priority, setPriority] = React.useState<"hot" | "warm" | "cold">("warm");
 
-  // Travel / CRM
-  const [trip_type, setTripType] = React.useState<"oneway" | "return" | "multicity">("return");
+  // assignment
+  const [agents, setAgents] = React.useState<Agent[]>([]);
+  const [assignedTo, setAssignedTo] = React.useState<string>(""); // uuid or ""
+  const [agentRoleFilter, setAgentRoleFilter] = React.useState<"all" | "b2c" | "b2b">("all");
+
+  // travel + notes
+  const [showTravel, setShowTravel] = React.useState(true);
+
+  const [tripType, setTripType] = React.useState<"oneway" | "return" | "multicity">("return");
+  const [cabinClass, setCabinClass] = React.useState<"economy" | "premium" | "business" | "first">("economy");
+
   const [departure, setDeparture] = React.useState("");
   const [destination, setDestination] = React.useState("");
-  const [depart_date, setDepartDate] = React.useState(""); // YYYY-MM-DD
-  const [return_date, setReturnDate] = React.useState(""); // YYYY-MM-DD
+
+  const [departDate, setDepartDate] = React.useState("");
+  const [returnDate, setReturnDate] = React.useState("");
 
   const [adults, setAdults] = React.useState<number>(1);
   const [children, setChildren] = React.useState<number>(0);
   const [infants, setInfants] = React.useState<number>(0);
 
-  const [cabin_class, setCabinClass] =
-    React.useState<"economy" | "premium" | "business" | "first">("economy");
-
   const [budget, setBudget] = React.useState("");
-  const [preferred_airline, setPreferredAirline] = React.useState("");
-  const [whatsapp, setWhatsapp] = React.useState("");
-  const [notes, setNotes] = React.useState("");
-  const [follow_up_date, setFollowUpDate] = React.useState(""); // YYYY-MM-DD
-  const [whatsapp_text, setWhatsappText] = React.useState("");
+  const [preferredAirline, setPreferredAirline] = React.useState("");
 
-  const [showMore, setShowMore] = React.useState(true);
+  const [whatsapp, setWhatsapp] = React.useState("");
+  const [followUpDate, setFollowUpDate] = React.useState("");
+  const [notes, setNotes] = React.useState("");
+  const [whatsappText, setWhatsappText] = React.useState("");
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  function numSafe(n: number) {
-    if (Number.isNaN(n)) return 0;
-    if (n < 0) return 0;
-    return Math.floor(n);
-  }
+  // load agents
+  React.useEffect(() => {
+    (async () => {
+      const res = await getAgentsAction();
+      if (res.ok) setAgents(res.agents);
+    })();
+  }, []);
+
+  const filteredAgents = React.useMemo(() => {
+    if (agentRoleFilter === "all") return agents;
+    return agents.filter((a) => (a.role ?? "").toLowerCase() === agentRoleFilter);
+  }, [agents, agentRoleFilter]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -70,24 +83,30 @@ export default function AddLeadForm({
       priority,
       status_id: defaultStatusId,
 
-      // extra fields
-      trip_type: trip_type ?? "return",
+      assigned_to: assignedTo ? assignedTo : null,
+
+      // travel fields
+      trip_type: tripType,
+      cabin_class: cabinClass,
+
       departure: departure.trim() ? departure.trim() : null,
       destination: destination.trim() ? destination.trim() : null,
-      depart_date: depart_date ? depart_date : null,
-      return_date: trip_type === "return" && return_date ? return_date : null,
 
-      adults: numSafe(adults),
-      children: numSafe(children),
-      infants: numSafe(infants),
+      depart_date: departDate ? departDate : null,
+      return_date: returnDate ? returnDate : null,
 
-      cabin_class: cabin_class ?? "economy",
+      adults: Number.isFinite(adults) ? adults : 1,
+      children: Number.isFinite(children) ? children : 0,
+      infants: Number.isFinite(infants) ? infants : 0,
+
       budget: budget.trim() ? budget.trim() : null,
-      preferred_airline: preferred_airline.trim() ? preferred_airline.trim() : null,
+      preferred_airline: preferredAirline.trim() ? preferredAirline.trim() : null,
+
       whatsapp: whatsapp.trim() ? whatsapp.trim() : null,
+      follow_up_date: followUpDate ? followUpDate : null,
+
       notes: notes.trim() ? notes.trim() : null,
-      follow_up_date: follow_up_date ? follow_up_date : null,
-      whatsapp_text: whatsapp_text.trim() ? whatsapp_text.trim() : null,
+      whatsapp_text: whatsappText.trim() ? whatsappText.trim() : null,
     };
 
     setLoading(true);
@@ -110,7 +129,7 @@ export default function AddLeadForm({
         </div>
       )}
 
-      {/* Basic */}
+      {/* BASIC */}
       <div>
         <label className="mb-1 block text-sm font-medium text-zinc-800">Full Name *</label>
         <input
@@ -168,24 +187,71 @@ export default function AddLeadForm({
         </div>
       </div>
 
-      {/* Toggle */}
+      {/* ASSIGN */}
+      <div className="rounded-2xl border border-zinc-200 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-sm font-semibold text-zinc-900">Assignment</div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className={`rounded-lg px-2 py-1 text-xs border ${agentRoleFilter === "all" ? "bg-zinc-900 text-white border-zinc-900" : "bg-white border-zinc-200"}`}
+              onClick={() => setAgentRoleFilter("all")}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className={`rounded-lg px-2 py-1 text-xs border ${agentRoleFilter === "b2c" ? "bg-zinc-900 text-white border-zinc-900" : "bg-white border-zinc-200"}`}
+              onClick={() => setAgentRoleFilter("b2c")}
+            >
+              B2C
+            </button>
+            <button
+              type="button"
+              className={`rounded-lg px-2 py-1 text-xs border ${agentRoleFilter === "b2b" ? "bg-zinc-900 text-white border-zinc-900" : "bg-white border-zinc-200"}`}
+              onClick={() => setAgentRoleFilter("b2b")}
+            >
+              B2B
+            </button>
+          </div>
+        </div>
+
+        <label className="mb-1 block text-sm font-medium text-zinc-800">Assign To (optional)</label>
+        <select
+          className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+          value={assignedTo}
+          onChange={(e) => setAssignedTo(e.target.value)}
+        >
+          <option value="">Unassigned</option>
+          {filteredAgents.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.full_name ?? a.id} {a.role ? `(${a.role})` : ""}
+            </option>
+          ))}
+        </select>
+
+        <div className="mt-2 text-xs text-zinc-500">
+          Note: Agents list “profiles” table se aati hai. Role: <span className="font-medium">b2c</span> / <span className="font-medium">b2b</span>.
+        </div>
+      </div>
+
+      {/* TOGGLE */}
       <button
         type="button"
-        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"
-        onClick={() => setShowMore((v) => !v)}
+        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50"
+        onClick={() => setShowTravel((v) => !v)}
       >
-        {showMore ? "Hide Travel / Notes" : "Show Travel / Notes"}
+        {showTravel ? "Hide Travel / Notes" : "Show Travel / Notes"}
       </button>
 
-      {showMore && (
-        <>
-          {/* Trip */}
+      {showTravel && (
+        <div className="space-y-4">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium text-zinc-800">Trip Type</label>
               <select
                 className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                value={trip_type}
+                value={tripType}
                 onChange={(e) => setTripType(e.target.value as any)}
               >
                 <option value="return">return</option>
@@ -198,7 +264,7 @@ export default function AddLeadForm({
               <label className="mb-1 block text-sm font-medium text-zinc-800">Cabin Class</label>
               <select
                 className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                value={cabin_class}
+                value={cabinClass}
                 onChange={(e) => setCabinClass(e.target.value as any)}
               >
                 <option value="economy">economy</option>
@@ -219,7 +285,6 @@ export default function AddLeadForm({
                 placeholder="e.g. London (LHR)"
               />
             </div>
-
             <div>
               <label className="mb-1 block text-sm font-medium text-zinc-800">Destination</label>
               <input
@@ -237,19 +302,17 @@ export default function AddLeadForm({
               <input
                 type="date"
                 className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                value={depart_date}
+                value={departDate}
                 onChange={(e) => setDepartDate(e.target.value)}
               />
             </div>
-
             <div>
               <label className="mb-1 block text-sm font-medium text-zinc-800">Return Date</label>
               <input
                 type="date"
-                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 disabled:opacity-60"
-                value={return_date}
+                className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                value={returnDate}
                 onChange={(e) => setReturnDate(e.target.value)}
-                disabled={trip_type !== "return"}
               />
             </div>
           </div>
@@ -259,10 +322,10 @@ export default function AddLeadForm({
               <label className="mb-1 block text-sm font-medium text-zinc-800">Adults</label>
               <input
                 type="number"
-                min={0}
+                min={1}
                 className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                 value={adults}
-                onChange={(e) => setAdults(Number(e.target.value))}
+                onChange={(e) => setAdults(parseInt(e.target.value || "1", 10))}
               />
             </div>
             <div>
@@ -272,7 +335,7 @@ export default function AddLeadForm({
                 min={0}
                 className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                 value={children}
-                onChange={(e) => setChildren(Number(e.target.value))}
+                onChange={(e) => setChildren(parseInt(e.target.value || "0", 10))}
               />
             </div>
             <div>
@@ -282,7 +345,7 @@ export default function AddLeadForm({
                 min={0}
                 className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
                 value={infants}
-                onChange={(e) => setInfants(Number(e.target.value))}
+                onChange={(e) => setInfants(parseInt(e.target.value || "0", 10))}
               />
             </div>
           </div>
@@ -301,7 +364,7 @@ export default function AddLeadForm({
               <label className="mb-1 block text-sm font-medium text-zinc-800">Preferred Airline</label>
               <input
                 className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                value={preferred_airline}
+                value={preferredAirline}
                 onChange={(e) => setPreferredAirline(e.target.value)}
                 placeholder="e.g. Emirates / Qatar / BA"
               />
@@ -323,7 +386,7 @@ export default function AddLeadForm({
               <input
                 type="date"
                 className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                value={follow_up_date}
+                value={followUpDate}
                 onChange={(e) => setFollowUpDate(e.target.value)}
               />
             </div>
@@ -332,7 +395,7 @@ export default function AddLeadForm({
           <div>
             <label className="mb-1 block text-sm font-medium text-zinc-800">Notes</label>
             <textarea
-              className="min-h-[90px] w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 min-h-[90px]"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Any customer notes..."
@@ -342,13 +405,13 @@ export default function AddLeadForm({
           <div>
             <label className="mb-1 block text-sm font-medium text-zinc-800">WhatsApp Text</label>
             <textarea
-              className="min-h-[70px] w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400"
-              value={whatsapp_text}
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-zinc-400 min-h-[70px]"
+              value={whatsappText}
               onChange={(e) => setWhatsappText(e.target.value)}
               placeholder="Message template (optional)"
             />
           </div>
-        </>
+        </div>
       )}
 
       <div className="flex items-center justify-end gap-2 pt-2">
