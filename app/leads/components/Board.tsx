@@ -16,32 +16,45 @@ import AddLeadModal from "./AddLeadModal";
 import { moveLeadAction } from "../actions";
 import type { Lead, LeadStatus } from "../actions";
 
+/**
+ * IMPORTANT:
+ * - Supabase se kuch fields null/undefined aa sakti hain.
+ * - Isliye hum yahan normalize kar ke UI ko stable rakhte hain.
+ */
 function normalizeLead(l: any): Lead {
   return {
     id: l.id,
+
     full_name: l.full_name ?? null,
     phone: l.phone ?? null,
     email: l.email ?? null,
     source: l.source ?? null,
+
     status_id: l.status_id,
     position: Number(l.position ?? 0),
+
     priority: (l.priority ?? "warm") as any,
     assigned_to: l.assigned_to ?? null,
+
     created_by: l.created_by ?? null,
     last_activity_at: l.last_activity_at ?? null,
+
     created_at: l.created_at ?? "",
     updated_at: l.updated_at ?? "",
 
     details: l.details ?? {},
 
+    // travel fields
     trip_type: (l.trip_type ?? null) as any,
     departure: l.departure ?? null,
     destination: l.destination ?? null,
     depart_date: l.depart_date ?? null,
     return_date: l.return_date ?? null,
+
     adults: typeof l.adults === "number" ? l.adults : l.adults ?? null,
     children: typeof l.children === "number" ? l.children : l.children ?? null,
     infants: typeof l.infants === "number" ? l.infants : l.infants ?? null,
+
     cabin_class: (l.cabin_class ?? null) as any,
     budget: l.budget ?? null,
     preferred_airline: l.preferred_airline ?? null,
@@ -61,7 +74,7 @@ export default function Board({
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
+      activationConstraint: { distance: 6 }, // avoid accidental drags
     })
   );
 
@@ -69,12 +82,14 @@ export default function Board({
     (initialLeads ?? []).map(normalizeLead)
   );
 
+  // Lead map for O(1) lookup
   const leadsById = React.useMemo(() => {
     const map: Record<string, Lead> = {};
     for (const l of leads) map[l.id] = l;
     return map;
   }, [leads]);
 
+  // statusId -> ordered leadIds
   const [orderByStatus, setOrderByStatus] = React.useState<Record<string, string[]>>({});
 
   React.useEffect(() => {
@@ -97,6 +112,7 @@ export default function Board({
   }, [statuses, leads]);
 
   const [viewLead, setViewLead] = React.useState<Lead | null>(null);
+
   const [actionLead, setActionLead] = React.useState<Lead | null>(null);
   const [actionAnchor, setActionAnchor] = React.useState<HTMLButtonElement | null>(null);
 
@@ -117,6 +133,7 @@ export default function Board({
     const overId = String(over.id);
     if (activeId === overId) return;
 
+    // find source & destination columns
     let fromStatusId: string | null = null;
     let toStatusId: string | null = null;
 
@@ -126,6 +143,7 @@ export default function Board({
       if (ids.includes(overId)) toStatusId = s.id;
     }
 
+    // if dropped onto column container
     if (!toStatusId && orderByStatus[overId]) {
       toStatusId = overId;
     }
@@ -138,16 +156,21 @@ export default function Board({
     const oldIndex = fromIds.indexOf(activeId);
     const newIndex = toIds.indexOf(overId);
 
+    // same column reorder
     if (fromStatusId === toStatusId) {
-      const reordered = arrayMove(fromIds, oldIndex, newIndex < 0 ? fromIds.length - 1 : newIndex);
-      const next = { ...orderByStatus, [fromStatusId]: reordered };
-      setOrderByStatus(next);
+      const reordered = arrayMove(
+        fromIds,
+        oldIndex,
+        newIndex < 0 ? fromIds.length - 1 : newIndex
+      );
 
+      setOrderByStatus((prev) => ({ ...prev, [fromStatusId!]: reordered }));
+
+      // optimistic positions
       setLeads((prev) =>
         prev.map((l) => {
           if (l.status_id !== fromStatusId) return l;
-          const pos = reordered.indexOf(l.id);
-          return { ...l, position: pos };
+          return { ...l, position: reordered.indexOf(l.id) };
         })
       );
 
@@ -161,18 +184,19 @@ export default function Board({
       return;
     }
 
+    // move between columns
     fromIds.splice(oldIndex, 1);
 
     const insertIndex = newIndex >= 0 ? newIndex : toIds.length;
     toIds.splice(insertIndex, 0, activeId);
 
-    const next = {
-      ...orderByStatus,
-      [fromStatusId]: fromIds,
-      [toStatusId]: toIds,
-    };
-    setOrderByStatus(next);
+    setOrderByStatus((prev) => ({
+      ...prev,
+      [fromStatusId!]: fromIds,
+      [toStatusId!]: toIds,
+    }));
 
+    // optimistic lead update
     setLeads((prev) =>
       prev.map((l) => {
         if (l.id === activeId) return { ...l, status_id: toStatusId!, position: insertIndex };
@@ -192,6 +216,7 @@ export default function Board({
 
   const firstStatusId = statuses?.[0]?.id ?? "";
 
+  // Actions menu positioning
   const menuStyle: React.CSSProperties | undefined = actionAnchor
     ? (() => {
         const rect = actionAnchor.getBoundingClientRect();
@@ -210,7 +235,11 @@ export default function Board({
 
   function openWhatsApp(phone: string | null, name: string | null, customText?: string | null) {
     if (!phone) return;
-    const msg = encodeURIComponent(customText?.trim() ? customText.trim() : `Hi ${name ?? ""}, regarding your travel inquiry...`);
+    const msg = encodeURIComponent(
+      customText?.trim()
+        ? customText.trim()
+        : `Hi ${name ?? ""}, regarding your travel inquiry...`
+    );
     const digits = phone.replace(/[^\d]/g, "");
     window.open(`https://wa.me/${digits}?text=${msg}`, "_blank");
   }
@@ -229,6 +258,7 @@ export default function Board({
 
   return (
     <div className="mt-5">
+      {/* Top bar */}
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="text-sm text-zinc-600">
           Tip: Drag only from the <span className="font-semibold">Drag</span> handle.
@@ -284,7 +314,7 @@ export default function Board({
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="space-y-4 p-5">
               <div>
                 <div className="text-xs text-zinc-500">Name</div>
                 <div className="text-lg font-semibold text-zinc-900">{viewLead.full_name ?? "—"}</div>
@@ -382,7 +412,9 @@ export default function Board({
                 <button
                   type="button"
                   className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
-                  onClick={() => openWhatsApp(viewLead.whatsapp ?? viewLead.phone, viewLead.full_name, viewLead.whatsapp_text)}
+                  onClick={() =>
+                    openWhatsApp(viewLead.whatsapp ?? viewLead.phone, viewLead.full_name, viewLead.whatsapp_text)
+                  }
                 >
                   WhatsApp
                 </button>
@@ -404,7 +436,10 @@ export default function Board({
       {actionLead && actionAnchor && (
         <>
           <div className="fixed inset-0 z-50" onMouseDown={closeActions} />
-          <div style={menuStyle} className="z-[60] w-56 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
+          <div
+            style={menuStyle}
+            className="z-[60] w-56 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg"
+          >
             <button
               type="button"
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
