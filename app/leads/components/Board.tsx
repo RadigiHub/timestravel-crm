@@ -13,8 +13,8 @@ import { arrayMove } from "@dnd-kit/sortable";
 
 import Column from "./Column";
 import AddLeadModal from "./AddLeadModal";
-import { moveLeadAction } from "../actions";
-import type { Lead, LeadStatus } from "../actions";
+import { moveLeadAction, listAgentsAction, assignLeadAction } from "../actions";
+import type { Lead, LeadStatus, Agent } from "../actions";
 
 function normalizeLead(l: any): Lead {
   return {
@@ -69,6 +69,29 @@ export default function Board({
     (initialLeads ?? []).map(normalizeLead)
   );
 
+  // Agents
+  const [agents, setAgents] = React.useState<Agent[]>([]);
+  const [agentsLoaded, setAgentsLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const res = await listAgentsAction();
+      if (!mounted) return;
+      if (res.ok) setAgents(res.agents);
+      setAgentsLoaded(true);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const agentsById = React.useMemo(() => {
+    const m: Record<string, Agent> = {};
+    for (const a of agents) m[a.id] = a;
+    return m;
+  }, [agents]);
+
   const leadsById = React.useMemo(() => {
     const map: Record<string, Lead> = {};
     for (const l of leads) map[l.id] = l;
@@ -97,7 +120,9 @@ export default function Board({
   }, [statuses, leads]);
 
   const [viewLead, setViewLead] = React.useState<Lead | null>(null);
-  const [actionLead, setActionLead] = React.useState<Lead | null>(null);
+
+  // Action menu
+  const [actionLead, setActionLead] = React.UseState<Lead | null>(null) as any;
   const [actionAnchor, setActionAnchor] = React.useState<HTMLButtonElement | null>(null);
 
   function openActions(lead: Lead, anchor: HTMLButtonElement) {
@@ -107,6 +132,50 @@ export default function Board({
   function closeActions() {
     setActionLead(null);
     setActionAnchor(null);
+  }
+
+  // Assign popover
+  const [assignLead, setAssignLead] = React.useState<Lead | null>(null);
+  const [assignAnchor, setAssignAnchor] = React.useState<HTMLButtonElement | null>(null);
+  const [assignTo, setAssignTo] = React.useState<string | "">("");
+  const [assignLoading, setAssignLoading] = React.useState(false);
+  const [assignError, setAssignError] = React.useState<string | null>(null);
+
+  function openAssign(lead: Lead, anchor: HTMLButtonElement) {
+    setAssignError(null);
+    setAssignLead(lead);
+    setAssignAnchor(anchor);
+    setAssignTo(lead.assigned_to ?? "");
+  }
+  function closeAssign() {
+    setAssignLead(null);
+    setAssignAnchor(null);
+    setAssignTo("");
+    setAssignLoading(false);
+    setAssignError(null);
+  }
+
+  async function saveAssign(leadId: string, newAssignee: string | null) {
+    setAssignLoading(true);
+    setAssignError(null);
+
+    const res = await assignLeadAction({ leadId, assigned_to: newAssignee });
+    setAssignLoading(false);
+
+    if (!res.ok) {
+      setAssignError(res.error ?? "Failed to assign lead.");
+      return false;
+    }
+
+    // update local state
+    setLeads((prev) =>
+      prev.map((l) => (l.id === leadId ? { ...l, assigned_to: newAssignee } : l))
+    );
+
+    // also update viewLead if open
+    setViewLead((prev) => (prev?.id === leadId ? { ...prev, assigned_to: newAssignee } : prev));
+
+    return true;
   }
 
   async function onDragEnd(event: DragEndEvent) {
@@ -204,6 +273,18 @@ export default function Board({
       })()
     : undefined;
 
+  const assignStyle: React.CSSProperties | undefined = assignAnchor
+    ? (() => {
+        const rect = assignAnchor.getBoundingClientRect();
+        return {
+          position: "fixed",
+          top: rect.bottom + 8,
+          left: rect.left,
+          zIndex: 70,
+        };
+      })()
+    : undefined;
+
   function copyText(text: string) {
     navigator.clipboard?.writeText(text).catch(() => {});
   }
@@ -223,8 +304,18 @@ export default function Board({
     const a = typeof l.adults === "number" ? l.adults : null;
     const c = typeof l.children === "number" ? l.children : null;
     const i = typeof l.infants === "number" ? l.infants : null;
-    const parts = [a != null ? `A:${a}` : null, c != null ? `C:${c}` : null, i != null ? `I:${i}` : null].filter(Boolean);
+    const parts = [
+      a != null ? `A:${a}` : null,
+      c != null ? `C:${c}` : null,
+      i != null ? `I:${i}` : null,
+    ].filter(Boolean);
     return parts.length ? parts.join("  ") : "—";
+  };
+
+  const assignedLabel = (lead: Lead) => {
+    if (!lead.assigned_to) return "Unassigned";
+    const a = agentsById[lead.assigned_to];
+    return a?.full_name || "Assigned";
   };
 
   return (
@@ -264,7 +355,7 @@ export default function Board({
         </div>
       </DndContext>
 
-      {/* VIEW MODAL */}
+      {/* VIEW MODAL (DETAILS) */}
       {viewLead && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -272,7 +363,7 @@ export default function Board({
             if (e.target === e.currentTarget) setViewLead(null);
           }}
         >
-          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
+          <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
               <div className="text-base font-semibold text-zinc-900">Lead Details</div>
               <button
@@ -284,10 +375,68 @@ export default function Board({
               </button>
             </div>
 
-            <div className="space-y-4 p-5">
+            <div className="max-h-[78vh] overflow-y-auto p-5 space-y-4">
               <div>
                 <div className="text-xs text-zinc-500">Name</div>
                 <div className="text-lg font-semibold text-zinc-900">{viewLead.full_name ?? "—"}</div>
+              </div>
+
+              {/* Assigned To (DETAILS) */}
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div>
+                    <div className="text-xs text-zinc-500">Assigned To</div>
+                    <div className="text-sm font-semibold text-zinc-900">
+                      {assignedLabel(viewLead)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div className="md:col-span-2">
+                    <select
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                      value={viewLead.assigned_to ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setViewLead((prev) => (prev ? { ...prev, assigned_to: v || null } : prev));
+                      }}
+                      disabled={!agentsLoaded}
+                    >
+                      <option value="">{agentsLoaded ? "Unassigned" : "Loading agents..."}</option>
+                      {agents.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.full_name} ({a.role})
+                        </option>
+                      ))}
+                    </select>
+                    <div className="mt-1 text-[11px] text-zinc-500">
+                      Tip: Lead ko agent assign karna yahan se bhi ho sakta hai.
+                    </div>
+                  </div>
+
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      className="w-full rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+                      onClick={async () => {
+                        const ok = await saveAssign(viewLead.id, viewLead.assigned_to ?? null);
+                        if (ok) {
+                          // stay open, just saved
+                        }
+                      }}
+                      disabled={assignLoading}
+                    >
+                      {assignLoading ? "Saving..." : "Save Assign"}
+                    </button>
+                  </div>
+                </div>
+
+                {assignError && (
+                  <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {assignError}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -382,9 +531,7 @@ export default function Board({
                 <button
                   type="button"
                   className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
-                  onClick={() =>
-                    openWhatsApp(viewLead.whatsapp ?? viewLead.phone, viewLead.full_name, viewLead.whatsapp_text)
-                  }
+                  onClick={() => openWhatsApp(viewLead.whatsapp ?? viewLead.phone, viewLead.full_name, viewLead.whatsapp_text)}
                 >
                   WhatsApp
                 </button>
@@ -406,7 +553,24 @@ export default function Board({
       {actionLead && actionAnchor && (
         <>
           <div className="fixed inset-0 z-50" onMouseDown={closeActions} />
-          <div style={menuStyle} className="z-[60] w-56 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
+          <div style={menuStyle} className="z-[60] w-60 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
+            {/* Assign Lead (ACTION MENU) */}
+            <button
+              type="button"
+              className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium hover:bg-zinc-50"
+              onClick={() => {
+                // open assign popover on the same anchor
+                const anchor = actionAnchor;
+                const lead = actionLead;
+                closeActions();
+                openAssign(lead, anchor);
+              }}
+            >
+              Assign Lead…
+            </button>
+
+            <div className="my-1 border-t border-zinc-100" />
+
             <button
               type="button"
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
@@ -474,6 +638,62 @@ export default function Board({
             >
               Open Details
             </button>
+          </div>
+        </>
+      )}
+
+      {/* ASSIGN POPOVER */}
+      {assignLead && assignAnchor && (
+        <>
+          <div className="fixed inset-0 z-[65]" onMouseDown={closeAssign} />
+          <div style={assignStyle} className="z-[70] w-72 rounded-xl border border-zinc-200 bg-white p-3 shadow-lg">
+            <div className="mb-2 text-sm font-semibold text-zinc-900">Assign Lead</div>
+
+            <div className="mb-2 text-xs text-zinc-500">
+              Lead: <span className="font-medium text-zinc-800">{assignLead.full_name ?? "—"}</span>
+            </div>
+
+            <select
+              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              value={assignTo}
+              onChange={(e) => setAssignTo(e.target.value)}
+              disabled={!agentsLoaded}
+            >
+              <option value="">{agentsLoaded ? "Unassigned" : "Loading agents..."}</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.full_name} ({a.role})
+                </option>
+              ))}
+            </select>
+
+            {assignError && (
+              <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {assignError}
+              </div>
+            )}
+
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50"
+                onClick={closeAssign}
+                disabled={assignLoading}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+                onClick={async () => {
+                  const ok = await saveAssign(assignLead.id, assignTo ? assignTo : null);
+                  if (ok) closeAssign();
+                }}
+                disabled={assignLoading}
+              >
+                {assignLoading ? "Saving..." : "Assign"}
+              </button>
+            </div>
           </div>
         </>
       )}
