@@ -14,13 +14,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import Column from "./Column";
 import AddLeadModal from "./AddLeadModal";
 import { moveLeadAction, listAgentsAction } from "../actions";
-import type { Lead, LeadStatus } from "../actions";
-
-type AgentLite = {
-  id: string;
-  full_name?: string | null;
-  email?: string | null; // optional (agar exist ho)
-};
+import type { Lead, LeadStatus, Agent } from "../actions";
 
 function normalizeLead(l: any): Lead {
   return {
@@ -63,9 +57,11 @@ function safeIncludes(hay: string | null | undefined, needle: string) {
   return hay.toLowerCase().includes(needle);
 }
 
-function shortId(id: string) {
-  return id.length > 10 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
-}
+type AgentLite = {
+  id: string;
+  full_name?: string | null;
+  email?: string | null;
+};
 
 export default function Board({
   statuses,
@@ -111,7 +107,7 @@ export default function Board({
     setOrderByStatus(next);
   }, [statuses, leads]);
 
-  // ✅ NEW: load agents (id -> name)
+  // ✅ Agents map (for showing names instead of UUIDs)
   const [agentsById, setAgentsById] = React.useState<Record<string, AgentLite>>({});
 
   React.useEffect(() => {
@@ -119,21 +115,28 @@ export default function Board({
 
     (async () => {
       try {
-        const rows = (await listAgentsAction()) as any[];
+        const res = await listAgentsAction();
         if (cancelled) return;
 
+        if (!res || (res as any).ok !== true) {
+          // silently ignore if API fails; dropdown will fallback to IDs
+          return;
+        }
+
+        const agents = (res as { ok: true; agents: Agent[] }).agents ?? [];
         const map: Record<string, AgentLite> = {};
-        for (const r of rows ?? []) {
-          if (!r?.id) continue;
-          map[String(r.id)] = {
-            id: String(r.id),
-            full_name: r.full_name ?? null,
-            email: r.email ?? null,
+        for (const a of agents) {
+          const id = (a as any).id as string;
+          if (!id) continue;
+          map[id] = {
+            id,
+            full_name: (a as any).full_name ?? null,
+            email: (a as any).email ?? null,
           };
         }
         setAgentsById(map);
       } catch {
-        // ignore (dropdown will fallback to UUID)
+        // ignore
       }
     })();
 
@@ -141,6 +144,19 @@ export default function Board({
       cancelled = true;
     };
   }, []);
+
+  const getAgentLabel = React.useCallback(
+    (agentId: string) => {
+      const a = agentsById[agentId];
+      const name = a?.full_name?.trim();
+      if (name) return name;
+      const em = a?.email?.trim();
+      if (em) return em;
+      // fallback: short uuid
+      return agentId.length > 10 ? `${agentId.slice(0, 8)}…` : agentId;
+    },
+    [agentsById]
+  );
 
   // ✅ NEW: filters
   const [search, setSearch] = React.useState("");
@@ -316,23 +332,14 @@ export default function Board({
     return parts.length ? parts.join("  ") : "—";
   };
 
-  // ✅ dropdown options: unique assigned_to IDs, but show agent full_name
-  const assignedOptions = React.useMemo(() => {
+  // ✅ Dropdown options based on leads + show agent names via agentsById
+  const assignedAgentIds = React.useMemo(() => {
     const ids = new Set<string>();
     for (const l of leads) {
       if (l.assigned_to) ids.add(l.assigned_to);
     }
-    return Array.from(ids).sort((a, b) => a.localeCompare(b));
-  }, [leads]);
-
-  const getAgentLabel = (agentId: string) => {
-    const a = agentsById[agentId];
-    const name = a?.full_name?.trim();
-    if (name) return name;
-    const email = (a as any)?.email?.trim?.();
-    if (email) return email;
-    return shortId(agentId);
-  };
+    return Array.from(ids).sort((a, b) => getAgentLabel(a).localeCompare(getAgentLabel(b)));
+  }, [leads, getAgentLabel]);
 
   return (
     <div className="mt-5">
@@ -374,10 +381,9 @@ export default function Board({
             >
               <option value="all">All (Assigned + Unassigned)</option>
               <option value="unassigned">Unassigned Only</option>
-
-              {assignedOptions.map((agentId) => (
-                <option key={agentId} value={agentId}>
-                  Assigned: {getAgentLabel(agentId)}
+              {assignedAgentIds.map((id) => (
+                <option key={id} value={id}>
+                  Assigned: {getAgentLabel(id)}
                 </option>
               ))}
             </select>
