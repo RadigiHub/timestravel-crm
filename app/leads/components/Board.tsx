@@ -26,9 +26,11 @@ function normalizeLead(l: any): Lead {
     status_id: l.status_id,
     position: Number(l.position ?? 0),
     priority: (l.priority ?? "warm") as any,
+
     assigned_to: l.assigned_to ?? null,
     created_by: l.created_by ?? null,
     last_activity_at: l.last_activity_at ?? null,
+
     created_at: l.created_at ?? "",
     updated_at: l.updated_at ?? "",
 
@@ -39,9 +41,11 @@ function normalizeLead(l: any): Lead {
     destination: l.destination ?? null,
     depart_date: l.depart_date ?? null,
     return_date: l.return_date ?? null,
+
     adults: typeof l.adults === "number" ? l.adults : l.adults ?? null,
     children: typeof l.children === "number" ? l.children : l.children ?? null,
     infants: typeof l.infants === "number" ? l.infants : l.infants ?? null,
+
     cabin_class: (l.cabin_class ?? null) as any,
     budget: l.budget ?? null,
     preferred_airline: l.preferred_airline ?? null,
@@ -68,29 +72,6 @@ export default function Board({
   const [leads, setLeads] = React.useState<Lead[]>(
     (initialLeads ?? []).map(normalizeLead)
   );
-
-  // Agents
-  const [agents, setAgents] = React.useState<Agent[]>([]);
-  const [agentsLoaded, setAgentsLoaded] = React.useState(false);
-
-  React.useEffect(() => {
-    let mounted = true;
-    (async () => {
-      const res = await listAgentsAction();
-      if (!mounted) return;
-      if (res.ok) setAgents(res.agents);
-      setAgentsLoaded(true);
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const agentsById = React.useMemo(() => {
-    const m: Record<string, Agent> = {};
-    for (const a of agents) m[a.id] = a;
-    return m;
-  }, [agents]);
 
   const leadsById = React.useMemo(() => {
     const map: Record<string, Lead> = {};
@@ -119,63 +100,53 @@ export default function Board({
     setOrderByStatus(next);
   }, [statuses, leads]);
 
+  // agents
+  const [agents, setAgents] = React.useState<Agent[]>([]);
+  React.useEffect(() => {
+    (async () => {
+      const res = await listAgentsAction();
+      if ((res as any)?.ok) setAgents((res as any).agents ?? []);
+    })();
+  }, []);
+
+  const agentNameById = React.useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const a of agents) m[a.id] = a.full_name;
+    return m;
+  }, [agents]);
+
   const [viewLead, setViewLead] = React.useState<Lead | null>(null);
 
-  // Action menu
-  const [actionLead, setActionLead] = React.UseState<Lead | null>(null) as any;
+  // action menu
+  const [actionLead, setActionLead] = React.useState<Lead | null>(null);
   const [actionAnchor, setActionAnchor] = React.useState<HTMLButtonElement | null>(null);
+  const [assignOpen, setAssignOpen] = React.useState(false);
 
   function openActions(lead: Lead, anchor: HTMLButtonElement) {
     setActionLead(lead);
     setActionAnchor(anchor);
+    setAssignOpen(false);
   }
   function closeActions() {
     setActionLead(null);
     setActionAnchor(null);
+    setAssignOpen(false);
   }
 
-  // Assign popover
-  const [assignLead, setAssignLead] = React.useState<Lead | null>(null);
-  const [assignAnchor, setAssignAnchor] = React.useState<HTMLButtonElement | null>(null);
-  const [assignTo, setAssignTo] = React.useState<string | "">("");
-  const [assignLoading, setAssignLoading] = React.useState(false);
-  const [assignError, setAssignError] = React.useState<string | null>(null);
+  async function applyAssignedTo(leadId: string, assignedTo: string | null) {
+    // optimistic UI
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, assigned_to: assignedTo } : l)));
+    if (viewLead?.id === leadId) setViewLead({ ...viewLead, assigned_to: assignedTo });
 
-  function openAssign(lead: Lead, anchor: HTMLButtonElement) {
-    setAssignError(null);
-    setAssignLead(lead);
-    setAssignAnchor(anchor);
-    setAssignTo(lead.assigned_to ?? "");
-  }
-  function closeAssign() {
-    setAssignLead(null);
-    setAssignAnchor(null);
-    setAssignTo("");
-    setAssignLoading(false);
-    setAssignError(null);
-  }
-
-  async function saveAssign(leadId: string, newAssignee: string | null) {
-    setAssignLoading(true);
-    setAssignError(null);
-
-    const res = await assignLeadAction({ leadId, assigned_to: newAssignee });
-    setAssignLoading(false);
-
-    if (!res.ok) {
-      setAssignError(res.error ?? "Failed to assign lead.");
-      return false;
+    const res = await assignLeadAction({ lead_id: leadId, assigned_to: assignedTo });
+    if (!(res as any)?.ok) {
+      // revert if failed
+      setLeads((prev) => prev); // no-op safe (keeps UI). You can enhance later.
+    } else {
+      const updated = normalizeLead((res as any).lead);
+      setLeads((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      if (viewLead?.id === updated.id) setViewLead(updated);
     }
-
-    // update local state
-    setLeads((prev) =>
-      prev.map((l) => (l.id === leadId ? { ...l, assigned_to: newAssignee } : l))
-    );
-
-    // also update viewLead if open
-    setViewLead((prev) => (prev?.id === leadId ? { ...prev, assigned_to: newAssignee } : prev));
-
-    return true;
   }
 
   async function onDragEnd(event: DragEndEvent) {
@@ -273,18 +244,6 @@ export default function Board({
       })()
     : undefined;
 
-  const assignStyle: React.CSSProperties | undefined = assignAnchor
-    ? (() => {
-        const rect = assignAnchor.getBoundingClientRect();
-        return {
-          position: "fixed",
-          top: rect.bottom + 8,
-          left: rect.left,
-          zIndex: 70,
-        };
-      })()
-    : undefined;
-
   function copyText(text: string) {
     navigator.clipboard?.writeText(text).catch(() => {});
   }
@@ -292,9 +251,7 @@ export default function Board({
   function openWhatsApp(phone: string | null, name: string | null, customText?: string | null) {
     if (!phone) return;
     const msg = encodeURIComponent(
-      customText?.trim()
-        ? customText.trim()
-        : `Hi ${name ?? ""}, regarding your travel inquiry...`
+      customText?.trim() ? customText.trim() : `Hi ${name ?? ""}, regarding your travel inquiry...`
     );
     const digits = phone.replace(/[^\d]/g, "");
     window.open(`https://wa.me/${digits}?text=${msg}`, "_blank");
@@ -310,12 +267,6 @@ export default function Board({
       i != null ? `I:${i}` : null,
     ].filter(Boolean);
     return parts.length ? parts.join("  ") : "—";
-  };
-
-  const assignedLabel = (lead: Lead) => {
-    if (!lead.assigned_to) return "Unassigned";
-    const a = agentsById[lead.assigned_to];
-    return a?.full_name || "Assigned";
   };
 
   return (
@@ -355,7 +306,7 @@ export default function Board({
         </div>
       </DndContext>
 
-      {/* VIEW MODAL (DETAILS) */}
+      {/* VIEW MODAL */}
       {viewLead && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -375,68 +326,10 @@ export default function Board({
               </button>
             </div>
 
-            <div className="max-h-[78vh] overflow-y-auto p-5 space-y-4">
+            <div className="max-h-[80vh] overflow-y-auto p-5 space-y-4">
               <div>
                 <div className="text-xs text-zinc-500">Name</div>
                 <div className="text-lg font-semibold text-zinc-900">{viewLead.full_name ?? "—"}</div>
-              </div>
-
-              {/* Assigned To (DETAILS) */}
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="mb-2 flex items-center justify-between">
-                  <div>
-                    <div className="text-xs text-zinc-500">Assigned To</div>
-                    <div className="text-sm font-semibold text-zinc-900">
-                      {assignedLabel(viewLead)}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <div className="md:col-span-2">
-                    <select
-                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                      value={viewLead.assigned_to ?? ""}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setViewLead((prev) => (prev ? { ...prev, assigned_to: v || null } : prev));
-                      }}
-                      disabled={!agentsLoaded}
-                    >
-                      <option value="">{agentsLoaded ? "Unassigned" : "Loading agents..."}</option>
-                      {agents.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.full_name} ({a.role})
-                        </option>
-                      ))}
-                    </select>
-                    <div className="mt-1 text-[11px] text-zinc-500">
-                      Tip: Lead ko agent assign karna yahan se bhi ho sakta hai.
-                    </div>
-                  </div>
-
-                  <div className="flex items-end">
-                    <button
-                      type="button"
-                      className="w-full rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
-                      onClick={async () => {
-                        const ok = await saveAssign(viewLead.id, viewLead.assigned_to ?? null);
-                        if (ok) {
-                          // stay open, just saved
-                        }
-                      }}
-                      disabled={assignLoading}
-                    >
-                      {assignLoading ? "Saving..." : "Save Assign"}
-                    </button>
-                  </div>
-                </div>
-
-                {assignError && (
-                  <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    {assignError}
-                  </div>
-                )}
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -456,12 +349,24 @@ export default function Board({
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div>
+                  <div className="text-xs text-zinc-500">Assigned To</div>
+                  <select
+                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                    value={viewLead.assigned_to ?? ""}
+                    onChange={(e) => applyAssignedTo(viewLead.id, e.target.value ? e.target.value : null)}
+                  >
+                    <option value="">Unassigned</option>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
                   <div className="text-xs text-zinc-500">Trip Type</div>
                   <div className="text-sm text-zinc-800">{viewLead.trip_type ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-zinc-500">Cabin</div>
-                  <div className="text-sm text-zinc-800">{viewLead.cabin_class ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">PAX</div>
@@ -553,24 +458,7 @@ export default function Board({
       {actionLead && actionAnchor && (
         <>
           <div className="fixed inset-0 z-50" onMouseDown={closeActions} />
-          <div style={menuStyle} className="z-[60] w-60 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
-            {/* Assign Lead (ACTION MENU) */}
-            <button
-              type="button"
-              className="w-full rounded-lg px-3 py-2 text-left text-sm font-medium hover:bg-zinc-50"
-              onClick={() => {
-                // open assign popover on the same anchor
-                const anchor = actionAnchor;
-                const lead = actionLead;
-                closeActions();
-                openAssign(lead, anchor);
-              }}
-            >
-              Assign Lead…
-            </button>
-
-            <div className="my-1 border-t border-zinc-100" />
-
+          <div style={menuStyle} className="z-[60] w-64 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
             <button
               type="button"
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
@@ -609,6 +497,48 @@ export default function Board({
             <button
               type="button"
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
+              onClick={() => setAssignOpen((v) => !v)}
+            >
+              Assign Lead
+              <span className="float-right text-xs text-zinc-500">
+                {actionLead.assigned_to ? agentNameById[actionLead.assigned_to] ?? "Assigned" : "Unassigned"}
+              </span>
+            </button>
+
+            {assignOpen && (
+              <div className="mt-1 max-h-56 overflow-y-auto rounded-lg border border-zinc-100 p-1">
+                <button
+                  type="button"
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                  onClick={async () => {
+                    await applyAssignedTo(actionLead.id, null);
+                    closeActions();
+                  }}
+                >
+                  Unassign
+                </button>
+                <div className="my-1 border-t border-zinc-100" />
+                {agents.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
+                    onClick={async () => {
+                      await applyAssignedTo(actionLead.id, a.id);
+                      closeActions();
+                    }}
+                  >
+                    {a.full_name}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="my-1 border-t border-zinc-100" />
+
+            <button
+              type="button"
+              className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
               onClick={() => {
                 copyText(actionLead.phone ?? "");
                 closeActions();
@@ -638,62 +568,6 @@ export default function Board({
             >
               Open Details
             </button>
-          </div>
-        </>
-      )}
-
-      {/* ASSIGN POPOVER */}
-      {assignLead && assignAnchor && (
-        <>
-          <div className="fixed inset-0 z-[65]" onMouseDown={closeAssign} />
-          <div style={assignStyle} className="z-[70] w-72 rounded-xl border border-zinc-200 bg-white p-3 shadow-lg">
-            <div className="mb-2 text-sm font-semibold text-zinc-900">Assign Lead</div>
-
-            <div className="mb-2 text-xs text-zinc-500">
-              Lead: <span className="font-medium text-zinc-800">{assignLead.full_name ?? "—"}</span>
-            </div>
-
-            <select
-              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-              value={assignTo}
-              onChange={(e) => setAssignTo(e.target.value)}
-              disabled={!agentsLoaded}
-            >
-              <option value="">{agentsLoaded ? "Unassigned" : "Loading agents..."}</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.full_name} ({a.role})
-                </option>
-              ))}
-            </select>
-
-            {assignError && (
-              <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                {assignError}
-              </div>
-            )}
-
-            <div className="mt-3 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium hover:bg-zinc-50"
-                onClick={closeAssign}
-                disabled={assignLoading}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-xl bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
-                onClick={async () => {
-                  const ok = await saveAssign(assignLead.id, assignTo ? assignTo : null);
-                  if (ok) closeAssign();
-                }}
-                disabled={assignLoading}
-              >
-                {assignLoading ? "Saving..." : "Assign"}
-              </button>
-            </div>
           </div>
         </>
       )}
