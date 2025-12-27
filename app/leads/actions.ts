@@ -11,7 +11,7 @@ export type LeadStatus = {
 };
 
 export type Agent = {
-  id: string; // profiles.id (uuid) -> auth.users.id
+  id: string;
   full_name: string;
   role: "admin" | "agent" | string;
 };
@@ -22,30 +22,29 @@ export type Lead = {
   phone: string | null;
   email: string | null;
   source: string | null;
-
   status_id: string;
   position: number;
-
   priority: "hot" | "warm" | "cold" | null;
 
   assigned_to: string | null;
-  created_by: string | null;
-  last_activity_at: string | null;
+  created_by?: string | null;
+  last_activity_at?: string | null;
 
   created_at: string;
   updated_at: string;
 
   details?: any;
 
-  // travel fields (as per your leads table)
   trip_type?: "oneway" | "return" | "multicity" | string | null;
   departure?: string | null;
   destination?: string | null;
   depart_date?: string | null;
   return_date?: string | null;
+
   adults?: number | null;
   children?: number | null;
   infants?: number | null;
+
   cabin_class?: "economy" | "premium" | "business" | "first" | string | null;
   budget?: string | null;
   preferred_airline?: string | null;
@@ -65,16 +64,18 @@ export type CreateLeadInput = {
 
   assigned_to?: string | null;
 
-  // travel fields
   trip_type?: "oneway" | "return" | "multicity" | string | null;
+  cabin_class?: "economy" | "premium" | "business" | "first" | string | null;
+
   departure?: string | null;
   destination?: string | null;
   depart_date?: string | null;
   return_date?: string | null;
+
   adults?: number | null;
   children?: number | null;
   infants?: number | null;
-  cabin_class?: "economy" | "premium" | "business" | "first" | string | null;
+
   budget?: string | null;
   preferred_airline?: string | null;
   whatsapp?: string | null;
@@ -87,26 +88,6 @@ export type CreateLeadResult =
   | { ok: true; lead: Lead }
   | { ok: false; error: string };
 
-export async function listAgentsAction(): Promise<{ ok: true; agents: Agent[] } | { ok: false; error: string }> {
-  try {
-    const supabase = await supabaseServer();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return { ok: false, error: "Unauthorized" };
-
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, full_name, role")
-      .in("role", ["agent", "admin"])
-      .order("full_name", { ascending: true });
-
-    if (error) return { ok: false, error: error.message };
-
-    return { ok: true, agents: (data ?? []) as Agent[] };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Unknown error" };
-  }
-}
-
 export async function createLeadAction(input: CreateLeadInput): Promise<CreateLeadResult> {
   try {
     const supabase = await supabaseServer();
@@ -117,7 +98,39 @@ export async function createLeadAction(input: CreateLeadInput): Promise<CreateLe
     if (!full_name) return { ok: false, error: "Full name is required." };
     if (!input.status_id) return { ok: false, error: "Status is required." };
 
-    // get next position for that status
+    const payload: Record<string, any> = {
+      full_name,
+      phone: input.phone ?? null,
+      email: input.email ?? null,
+      source: input.source ?? null,
+      priority: input.priority ?? "warm",
+      status_id: input.status_id,
+      assigned_to: input.assigned_to ?? null,
+    };
+
+    const optionalKeys: (keyof CreateLeadInput)[] = [
+      "trip_type",
+      "cabin_class",
+      "departure",
+      "destination",
+      "depart_date",
+      "return_date",
+      "adults",
+      "children",
+      "infants",
+      "budget",
+      "preferred_airline",
+      "whatsapp",
+      "notes",
+      "follow_up_date",
+      "whatsapp_text",
+    ];
+
+    for (const k of optionalKeys) {
+      if (k in input) payload[k] = (input as any)[k] ?? null;
+    }
+
+    // next position in that status
     const { data: maxPosRow, error: maxErr } = await supabase
       .from("leads")
       .select("position")
@@ -129,35 +142,7 @@ export async function createLeadAction(input: CreateLeadInput): Promise<CreateLe
     if (maxErr) return { ok: false, error: maxErr.message };
 
     const nextPos = typeof maxPosRow?.position === "number" ? maxPosRow.position + 1 : 0;
-
-    const payload: Record<string, any> = {
-      full_name,
-      phone: input.phone ?? null,
-      email: input.email ?? null,
-      source: input.source ?? null,
-      priority: input.priority ?? "warm",
-      status_id: input.status_id,
-      position: nextPos,
-      assigned_to: input.assigned_to ?? null,
-      created_by: auth.user.id,
-      last_activity_at: new Date().toISOString(),
-      // travel fields
-      trip_type: input.trip_type ?? "return",
-      departure: input.departure ?? null,
-      destination: input.destination ?? null,
-      depart_date: input.depart_date ?? null,
-      return_date: input.return_date ?? null,
-      adults: typeof input.adults === "number" ? input.adults : 1,
-      children: typeof input.children === "number" ? input.children : 0,
-      infants: typeof input.infants === "number" ? input.infants : 0,
-      cabin_class: input.cabin_class ?? "economy",
-      budget: input.budget ?? null,
-      preferred_airline: input.preferred_airline ?? null,
-      whatsapp: input.whatsapp ?? null,
-      notes: input.notes ?? null,
-      follow_up_date: input.follow_up_date ?? null,
-      whatsapp_text: input.whatsapp_text ?? null,
-    };
+    payload.position = nextPos;
 
     const { data, error } = await supabase.from("leads").insert(payload).select("*").single();
     if (error) return { ok: false, error: error.message };
@@ -186,7 +171,7 @@ export async function moveLeadAction(input: MoveLeadInput): Promise<{ ok: boolea
       const id = input.fromOrderIds[i];
       const { error } = await supabase
         .from("leads")
-        .update({ status_id: input.fromStatusId, position: i, last_activity_at: new Date().toISOString() })
+        .update({ status_id: input.fromStatusId, position: i })
         .eq("id", id);
       if (error) return { ok: false, error: error.message };
     }
@@ -195,7 +180,7 @@ export async function moveLeadAction(input: MoveLeadInput): Promise<{ ok: boolea
       const id = input.toOrderIds[i];
       const { error } = await supabase
         .from("leads")
-        .update({ status_id: input.toStatusId, position: i, last_activity_at: new Date().toISOString() })
+        .update({ status_id: input.toStatusId, position: i })
         .eq("id", id);
       if (error) return { ok: false, error: error.message };
     }
@@ -207,29 +192,48 @@ export async function moveLeadAction(input: MoveLeadInput): Promise<{ ok: boolea
   }
 }
 
-export type AssignLeadInput = {
-  leadId: string;
-  assigned_to: string | null;
-};
-
-export async function assignLeadAction(input: AssignLeadInput): Promise<{ ok: boolean; error?: string }> {
+export async function listAgentsAction(): Promise<{ ok: true; agents: Agent[] } | { ok: false; error: string }> {
   try {
     const supabase = await supabaseServer();
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) return { ok: false, error: "Unauthorized" };
 
-    const { error } = await supabase
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, full_name, role")
+      .in("role", ["agent", "admin"])
+      .order("full_name", { ascending: true });
+
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, agents: (data ?? []) as Agent[] };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Unknown error" };
+  }
+}
+
+export async function assignLeadAction(args: {
+  lead_id: string;
+  assigned_to: string | null;
+}): Promise<{ ok: true; lead: Lead } | { ok: false; error: string }> {
+  try {
+    const supabase = await supabaseServer();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return { ok: false, error: "Unauthorized" };
+
+    const { data, error } = await supabase
       .from("leads")
       .update({
-        assigned_to: input.assigned_to,
+        assigned_to: args.assigned_to,
         last_activity_at: new Date().toISOString(),
       })
-      .eq("id", input.leadId);
+      .eq("id", args.lead_id)
+      .select("*")
+      .single();
 
     if (error) return { ok: false, error: error.message };
 
     revalidatePath("/leads");
-    return { ok: true };
+    return { ok: true, lead: data as Lead };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Unknown error" };
   }
