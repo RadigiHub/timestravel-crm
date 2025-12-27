@@ -13,8 +13,12 @@ import { arrayMove } from "@dnd-kit/sortable";
 
 import Column from "./Column";
 import AddLeadModal from "./AddLeadModal";
-import { moveLeadAction } from "../actions";
-import type { Lead, LeadStatus } from "../actions";
+import {
+  moveLeadAction,
+  listAgentsAction,
+  assignLeadAction,
+} from "../actions";
+import type { Lead, LeadStatus, Agent } from "../actions";
 
 function normalizeLead(l: any): Lead {
   return {
@@ -52,10 +56,7 @@ function normalizeLead(l: any): Lead {
   };
 }
 
-function safeIncludes(hay: string | null | undefined, needle: string) {
-  if (!hay) return false;
-  return hay.toLowerCase().includes(needle);
-}
+type AssignedFilterValue = "all" | "unassigned" | `agent:${string}`;
 
 export default function Board({
   statuses,
@@ -80,14 +81,17 @@ export default function Board({
     return map;
   }, [leads]);
 
-  const [orderByStatus, setOrderByStatus] = React.useState<Record<string, string[]>>({});
+  const [orderByStatus, setOrderByStatus] = React.useState<
+    Record<string, string[]>
+  >({});
 
   React.useEffect(() => {
     const next: Record<string, string[]> = {};
     for (const s of statuses) next[s.id] = [];
 
     const sorted = [...leads].sort((a, b) => {
-      if (a.status_id === b.status_id) return (a.position ?? 0) - (b.position ?? 0);
+      if (a.status_id === b.status_id)
+        return (a.position ?? 0) - (b.position ?? 0);
       return a.status_id.localeCompare(b.status_id);
     });
 
@@ -101,48 +105,108 @@ export default function Board({
     setOrderByStatus(next);
   }, [statuses, leads]);
 
-  // ✅ NEW: filters
-  const [search, setSearch] = React.useState("");
-  const [assignedFilter, setAssignedFilter] = React.useState<string>("all"); // all | unassigned | email
+  // ====== Agents (for Assign + Filter labels) ======
+  const [agents, setAgents] = React.useState<Agent[]>([]);
+  const agentsById = React.useMemo(() => {
+    const map: Record<string, Agent> = {};
+    for (const a of agents) map[a.id] = a;
+    return map;
+  }, [agents]);
 
-  const searchNeedle = search.trim().toLowerCase();
-
-  const passesFilters = React.useCallback(
-    (lead: Lead) => {
-      // assigned filter
-      if (assignedFilter === "unassigned") {
-        if (lead.assigned_to) return false;
-      } else if (assignedFilter !== "all") {
-        if ((lead.assigned_to ?? "") !== assignedFilter) return false;
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await listAgentsAction();
+        if (cancelled) return;
+        setAgents(Array.isArray(res) ? (res as Agent[]) : []);
+      } catch {
+        // ignore
       }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-      // search filter
-      if (!searchNeedle) return true;
-      return (
-        safeIncludes(lead.full_name, searchNeedle) ||
-        safeIncludes(lead.phone, searchNeedle) ||
-        safeIncludes(lead.email, searchNeedle) ||
-        safeIncludes(lead.source, searchNeedle) ||
-        safeIncludes(lead.destination, searchNeedle) ||
-        safeIncludes(lead.departure, searchNeedle)
-      );
-    },
-    [assignedFilter, searchNeedle]
-  );
+  function agentLabel(agentId: string) {
+    const a = agentsById[agentId];
+    if (!a) return agentId; // fallback (UUID)
+    return (a.full_name?.trim() || a.email?.trim() || a.id) as string;
+  }
 
-  // Build a set of allowed lead IDs based on filters (so Column works unchanged)
-  const allowedLeadIds = React.useMemo(() => {
+  // ====== Top filters ======
+  const [q, setQ] = React.useState("");
+  const [assignedFilter, setAssignedFilter] =
+    React.useState<AssignedFilterValue>("all");
+
+  const assignedIdsFromLeads = React.useMemo(() => {
     const set = new Set<string>();
     for (const l of leads) {
-      if (passesFilters(l)) set.add(l.id);
+      if (l.assigned_to) set.add(String(l.assigned_to));
     }
-    return set;
-  }, [leads, passesFilters]);
+    return Array.from(set);
+  }, [leads]);
 
+  function matchesSearch(l: Lead, query: string) {
+    const s = query.trim().toLowerCase();
+    if (!s) return true;
+
+    const route = `${l.departure ?? ""} ${l.destination ?? ""}`.toLowerCase();
+    const name = `${l.full_name ?? ""}`.toLowerCase();
+    const phone = `${l.phone ?? ""}`.toLowerCase();
+    const email = `${l.email ?? ""}`.toLowerCase();
+    const src = `${l.source ?? ""}`.toLowerCase();
+
+    return (
+      name.includes(s) ||
+      phone.includes(s) ||
+      email.includes(s) ||
+      src.includes(s) ||
+      route.includes(s)
+    );
+  }
+
+  function matchesAssigned(l: Lead, f: AssignedFilterValue) {
+    if (f === "all") return true;
+    if (f === "unassigned") return !l.assigned_to;
+    if (f.startsWith("agent:")) {
+      const id = f.replace("agent:", "");
+      return String(l.assigned_to ?? "") === id;
+    }
+    return true;
+  }
+
+  const filteredOrderByStatus = React.useMemo(() => {
+    const next: Record<string, string[]> = {};
+    for (const s of statuses) next[s.id] = [];
+
+    for (const s of statuses) {
+      const ids = orderByStatus[s.id] ?? [];
+      next[s.id] = ids.filter((id) => {
+        const l = leadsById[id];
+        if (!l) return false;
+        if (!matchesSearch(l, q)) return false;
+        if (!matchesAssigned(l, assignedFilter)) return false;
+        return true;
+      });
+    }
+
+    return next;
+  }, [statuses, orderByStatus, leadsById, q, assignedFilter]);
+
+  const totalShown = React.useMemo(() => {
+    let c = 0;
+    for (const s of statuses) c += (filteredOrderByStatus[s.id] ?? []).length;
+    return c;
+  }, [statuses, filteredOrderByStatus]);
+
+  // ====== Modals / menus ======
   const [viewLead, setViewLead] = React.useState<Lead | null>(null);
 
   const [actionLead, setActionLead] = React.useState<Lead | null>(null);
-  const [actionAnchor, setActionAnchor] = React.useState<HTMLButtonElement | null>(null);
+  const [actionAnchor, setActionAnchor] =
+    React.useState<HTMLButtonElement | null>(null);
 
   function openActions(lead: Lead, anchor: HTMLButtonElement) {
     setActionLead(lead);
@@ -152,89 +216,6 @@ export default function Board({
     setActionLead(null);
     setActionAnchor(null);
   }
-
-  async function onDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over) return;
-
-    const activeId = String(active.id);
-    const overId = String(over.id);
-    if (activeId === overId) return;
-
-    let fromStatusId: string | null = null;
-    let toStatusId: string | null = null;
-
-    for (const s of statuses) {
-      const ids = orderByStatus[s.id] ?? [];
-      if (ids.includes(activeId)) fromStatusId = s.id;
-      if (ids.includes(overId)) toStatusId = s.id;
-    }
-
-    if (!toStatusId && orderByStatus[overId]) {
-      toStatusId = overId;
-    }
-
-    if (!fromStatusId || !toStatusId) return;
-
-    const fromIds = [...(orderByStatus[fromStatusId] ?? [])];
-    const toIds = fromStatusId === toStatusId ? fromIds : [...(orderByStatus[toStatusId] ?? [])];
-
-    const oldIndex = fromIds.indexOf(activeId);
-    const newIndex = toIds.indexOf(overId);
-
-    if (fromStatusId === toStatusId) {
-      const reordered = arrayMove(fromIds, oldIndex, newIndex < 0 ? fromIds.length - 1 : newIndex);
-      const next = { ...orderByStatus, [fromStatusId]: reordered };
-      setOrderByStatus(next);
-
-      setLeads((prev) =>
-        prev.map((l) => {
-          if (l.status_id !== fromStatusId) return l;
-          const pos = reordered.indexOf(l.id);
-          return { ...l, position: pos };
-        })
-      );
-
-      await moveLeadAction({
-        fromStatusId,
-        toStatusId,
-        fromOrderIds: reordered,
-        toOrderIds: reordered,
-      });
-
-      return;
-    }
-
-    fromIds.splice(oldIndex, 1);
-
-    const insertIndex = newIndex >= 0 ? newIndex : toIds.length;
-    toIds.splice(insertIndex, 0, activeId);
-
-    const next = {
-      ...orderByStatus,
-      [fromStatusId]: fromIds,
-      [toStatusId]: toIds,
-    };
-    setOrderByStatus(next);
-
-    setLeads((prev) =>
-      prev.map((l) => {
-        if (l.id === activeId) return { ...l, status_id: toStatusId!, position: insertIndex };
-        if (l.status_id === fromStatusId) return { ...l, position: fromIds.indexOf(l.id) };
-        if (l.status_id === toStatusId) return { ...l, position: toIds.indexOf(l.id) };
-        return l;
-      })
-    );
-
-    await moveLeadAction({
-      fromStatusId,
-      toStatusId,
-      fromOrderIds: fromIds,
-      toOrderIds: toIds,
-    });
-  }
-
-  const firstStatusId = statuses?.[0]?.id ?? "";
 
   const menuStyle: React.CSSProperties | undefined = actionAnchor
     ? (() => {
@@ -275,21 +256,143 @@ export default function Board({
     return parts.length ? parts.join("  ") : "—";
   };
 
-  // ✅ NEW: build dropdown options from current leads (safe, no backend call)
-  const assignedOptions = React.useMemo(() => {
-    const emails = new Set<string>();
-    for (const l of leads) {
-      if (l.assigned_to) emails.add(l.assigned_to);
+  async function setAssigned(leadId: string, agentId: string | null) {
+    // optimistic UI update
+    setLeads((prev) =>
+      prev.map((l) => (l.id === leadId ? { ...l, assigned_to: agentId } : l))
+    );
+    try {
+      await assignLeadAction({ leadId, assignedTo: agentId });
+    } catch {
+      // if server fails, no hard rollback (keep simple)
     }
-    return Array.from(emails).sort((a, b) => a.localeCompare(b));
-  }, [leads]);
+  }
+
+  // ====== Drag and drop ======
+  async function onDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over) return;
+
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    if (activeId === overId) return;
+
+    let fromStatusId: string | null = null;
+    let toStatusId: string | null = null;
+
+    for (const s of statuses) {
+      const ids = orderByStatus[s.id] ?? [];
+      if (ids.includes(activeId)) fromStatusId = s.id;
+      if (ids.includes(overId)) toStatusId = s.id;
+    }
+
+    // allow drop on empty column container (overId == status id)
+    if (!toStatusId && orderByStatus[overId]) {
+      toStatusId = overId;
+    }
+
+    if (!fromStatusId || !toStatusId) return;
+
+    const fromIds = [...(orderByStatus[fromStatusId] ?? [])];
+    const toIds =
+      fromStatusId === toStatusId
+        ? fromIds
+        : [...(orderByStatus[toStatusId] ?? [])];
+
+    const oldIndex = fromIds.indexOf(activeId);
+    const newIndex = toIds.indexOf(overId);
+
+    if (fromStatusId === toStatusId) {
+      const reordered = arrayMove(
+        fromIds,
+        oldIndex,
+        newIndex < 0 ? fromIds.length - 1 : newIndex
+      );
+      const next = { ...orderByStatus, [fromStatusId]: reordered };
+      setOrderByStatus(next);
+
+      setLeads((prev) =>
+        prev.map((l) => {
+          if (l.status_id !== fromStatusId) return l;
+          const pos = reordered.indexOf(l.id);
+          return { ...l, position: pos };
+        })
+      );
+
+      await moveLeadAction({
+        fromStatusId,
+        toStatusId,
+        fromOrderIds: reordered,
+        toOrderIds: reordered,
+      });
+
+      return;
+    }
+
+    fromIds.splice(oldIndex, 1);
+
+    const insertIndex = newIndex >= 0 ? newIndex : toIds.length;
+    toIds.splice(insertIndex, 0, activeId);
+
+    const next = {
+      ...orderByStatus,
+      [fromStatusId]: fromIds,
+      [toStatusId]: toIds,
+    };
+    setOrderByStatus(next);
+
+    setLeads((prev) =>
+      prev.map((l) => {
+        if (l.id === activeId)
+          return { ...l, status_id: toStatusId!, position: insertIndex };
+        if (l.status_id === fromStatusId)
+          return { ...l, position: fromIds.indexOf(l.id) };
+        if (l.status_id === toStatusId)
+          return { ...l, position: toIds.indexOf(l.id) };
+        return l;
+      })
+    );
+
+    await moveLeadAction({
+      fromStatusId,
+      toStatusId,
+      fromOrderIds: fromIds,
+      toOrderIds: toIds,
+    });
+  }
+
+  const firstStatusId = statuses?.[0]?.id ?? "";
 
   return (
     <div className="mt-5">
-      <div className="mb-4 flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-sm text-zinc-600">
-            Tip: Drag only from the <span className="font-semibold">Drag</span> handle.
+      {/* Top bar: search + assigned filter */}
+      <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex w-full flex-col gap-2 md:flex-row md:items-center">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search name / phone / email / source / route..."
+            className="w-full md:w-[420px] rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm outline-none focus:border-zinc-400"
+          />
+
+          <select
+            value={assignedFilter}
+            onChange={(e) => setAssignedFilter(e.target.value as AssignedFilterValue)}
+            className="w-full md:w-[320px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+          >
+            <option value="all">All (Assigned + Unassigned)</option>
+            <option value="unassigned">Unassigned Only</option>
+            {assignedIdsFromLeads.map((id) => (
+              <option key={id} value={`agent:${id}`}>
+                Assigned: {agentLabel(id)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 md:justify-end">
+          <div className="text-xs text-zinc-500">
+            Showing <span className="font-semibold text-zinc-800">{totalShown}</span> lead(s)
           </div>
 
           {firstStatusId ? (
@@ -306,57 +409,26 @@ export default function Board({
             />
           ) : null}
         </div>
+      </div>
 
-        {/* ✅ NEW: Filter Bar */}
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="flex w-full flex-col gap-2 md:flex-row md:items-center">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name / phone / email / source / route..."
-              className="w-full md:w-[420px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            />
-
-            <select
-              value={assignedFilter}
-              onChange={(e) => setAssignedFilter(e.target.value)}
-              className="w-full md:w-[240px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            >
-              <option value="all">All (Assigned + Unassigned)</option>
-              <option value="unassigned">Unassigned Only</option>
-              {assignedOptions.map((email) => (
-                <option key={email} value={email}>
-                  Assigned: {email}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="text-xs text-zinc-500">
-            Showing{" "}
-            <span className="font-semibold text-zinc-700">{allowedLeadIds.size}</span>{" "}
-            lead(s)
-          </div>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="text-sm text-zinc-600">
+          Tip: Drag only from the <span className="font-semibold">Drag</span> handle.
         </div>
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
-          {statuses.map((s) => {
-            const rawIds = orderByStatus[s.id] ?? [];
-            const filteredIds = rawIds.filter((id) => allowedLeadIds.has(id));
-
-            return (
-              <Column
-                key={s.id}
-                status={s as any}
-                leadIds={filteredIds}
-                leadsById={leadsById as any}
-                onView={(lead: Lead) => setViewLead(lead)}
-                onAction={(lead: Lead, anchor: HTMLButtonElement) => openActions(lead, anchor)}
-              />
-            );
-          })}
+          {statuses.map((s) => (
+            <Column
+              key={s.id}
+              status={s as any}
+              leadIds={filteredOrderByStatus[s.id] ?? []}
+              leadsById={leadsById as any}
+              onView={(lead: Lead) => setViewLead(lead)}
+              onAction={(lead: Lead, anchor: HTMLButtonElement) => openActions(lead, anchor)}
+            />
+          ))}
         </div>
       </DndContext>
 
@@ -380,7 +452,7 @@ export default function Board({
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="space-y-4 p-5">
               <div>
                 <div className="text-xs text-zinc-500">Name</div>
                 <div className="text-lg font-semibold text-zinc-900">{viewLead.full_name ?? "—"}</div>
@@ -401,6 +473,35 @@ export default function Board({
                 </div>
               </div>
 
+              {/* Assign in Details */}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div>
+                  <div className="text-xs text-zinc-500">Assigned To</div>
+                  <select
+                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                    value={viewLead.assigned_to ?? ""}
+                    onChange={async (e) => {
+                      const nextId = e.target.value || null;
+                      const leadId = viewLead.id;
+                      setViewLead((prev) => (prev ? { ...prev, assigned_to: nextId } : prev));
+                      await setAssigned(leadId, nextId);
+                    }}
+                  >
+                    <option value="">Unassigned</option>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {(a.full_name?.trim() || a.email?.trim() || a.id) as string}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <div className="text-xs text-zinc-500">PAX</div>
+                  <div className="mt-2 text-sm text-zinc-800">{paxText(viewLead)}</div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div>
                   <div className="text-xs text-zinc-500">Trip Type</div>
@@ -411,8 +512,8 @@ export default function Board({
                   <div className="text-sm text-zinc-800">{viewLead.cabin_class ?? "—"}</div>
                 </div>
                 <div>
-                  <div className="text-xs text-zinc-500">PAX</div>
-                  <div className="text-sm text-zinc-800">{paxText(viewLead)}</div>
+                  <div className="text-xs text-zinc-500">Priority</div>
+                  <div className="text-sm text-zinc-800">{(viewLead.priority as any) ?? "—"}</div>
                 </div>
               </div>
 
@@ -478,9 +579,7 @@ export default function Board({
                 <button
                   type="button"
                   className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
-                  onClick={() =>
-                    openWhatsApp(viewLead.whatsapp ?? viewLead.phone, viewLead.full_name, viewLead.whatsapp_text)
-                  }
+                  onClick={() => openWhatsApp(viewLead.whatsapp ?? viewLead.phone, viewLead.full_name, viewLead.whatsapp_text)}
                 >
                   WhatsApp
                 </button>
@@ -502,7 +601,7 @@ export default function Board({
       {actionLead && actionAnchor && (
         <>
           <div className="fixed inset-0 z-50" onMouseDown={closeActions} />
-          <div style={menuStyle} className="z-[60] w-56 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
+          <div style={menuStyle} className="z-[60] w-60 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
             <button
               type="button"
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
@@ -538,7 +637,33 @@ export default function Board({
 
             <div className="my-1 border-t border-zinc-100" />
 
-            {/* ✅ Your Assign Lead option already works on your side — keep it as-is if you already implemented it elsewhere */}
+            {/* Assign Lead */}
+            <div className="px-3 py-2">
+              <div className="text-xs font-semibold text-zinc-700">Assign Lead</div>
+              <div className="mt-1 text-[11px] text-zinc-500">
+                {actionLead.assigned_to ? agentLabel(String(actionLead.assigned_to)) : "Unassigned"}
+              </div>
+
+              <select
+                className="mt-2 w-full rounded-lg border border-zinc-200 bg-white px-2 py-2 text-sm outline-none focus:border-zinc-400"
+                value={actionLead.assigned_to ?? ""}
+                onChange={async (e) => {
+                  const nextId = e.target.value || null;
+                  const leadId = actionLead.id;
+                  closeActions();
+                  await setAssigned(leadId, nextId);
+                }}
+              >
+                <option value="">Unassign</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {(a.full_name?.trim() || a.email?.trim() || a.id) as string}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="my-1 border-t border-zinc-100" />
 
             <button
               type="button"
