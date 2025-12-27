@@ -13,8 +13,14 @@ import { arrayMove } from "@dnd-kit/sortable";
 
 import Column from "./Column";
 import AddLeadModal from "./AddLeadModal";
-import { moveLeadAction } from "../actions";
+import { moveLeadAction, listAgentsAction } from "../actions";
 import type { Lead, LeadStatus } from "../actions";
+
+type AgentLite = {
+  id: string;
+  full_name?: string | null;
+  email?: string | null; // optional (agar exist ho)
+};
 
 function normalizeLead(l: any): Lead {
   return {
@@ -55,6 +61,10 @@ function normalizeLead(l: any): Lead {
 function safeIncludes(hay: string | null | undefined, needle: string) {
   if (!hay) return false;
   return hay.toLowerCase().includes(needle);
+}
+
+function shortId(id: string) {
+  return id.length > 10 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
 }
 
 export default function Board({
@@ -101,9 +111,40 @@ export default function Board({
     setOrderByStatus(next);
   }, [statuses, leads]);
 
+  // ✅ NEW: load agents (id -> name)
+  const [agentsById, setAgentsById] = React.useState<Record<string, AgentLite>>({});
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const rows = (await listAgentsAction()) as any[];
+        if (cancelled) return;
+
+        const map: Record<string, AgentLite> = {};
+        for (const r of rows ?? []) {
+          if (!r?.id) continue;
+          map[String(r.id)] = {
+            id: String(r.id),
+            full_name: r.full_name ?? null,
+            email: r.email ?? null,
+          };
+        }
+        setAgentsById(map);
+      } catch {
+        // ignore (dropdown will fallback to UUID)
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // ✅ NEW: filters
   const [search, setSearch] = React.useState("");
-  const [assignedFilter, setAssignedFilter] = React.useState<string>("all"); // all | unassigned | email
+  const [assignedFilter, setAssignedFilter] = React.useState<string>("all"); // all | unassigned | agentId
 
   const searchNeedle = search.trim().toLowerCase();
 
@@ -275,14 +316,23 @@ export default function Board({
     return parts.length ? parts.join("  ") : "—";
   };
 
-  // ✅ NEW: build dropdown options from current leads (safe, no backend call)
+  // ✅ dropdown options: unique assigned_to IDs, but show agent full_name
   const assignedOptions = React.useMemo(() => {
-    const emails = new Set<string>();
+    const ids = new Set<string>();
     for (const l of leads) {
-      if (l.assigned_to) emails.add(l.assigned_to);
+      if (l.assigned_to) ids.add(l.assigned_to);
     }
-    return Array.from(emails).sort((a, b) => a.localeCompare(b));
+    return Array.from(ids).sort((a, b) => a.localeCompare(b));
   }, [leads]);
+
+  const getAgentLabel = (agentId: string) => {
+    const a = agentsById[agentId];
+    const name = a?.full_name?.trim();
+    if (name) return name;
+    const email = (a as any)?.email?.trim?.();
+    if (email) return email;
+    return shortId(agentId);
+  };
 
   return (
     <div className="mt-5">
@@ -307,7 +357,7 @@ export default function Board({
           ) : null}
         </div>
 
-        {/* ✅ NEW: Filter Bar */}
+        {/* ✅ Filter Bar */}
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="flex w-full flex-col gap-2 md:flex-row md:items-center">
             <input
@@ -320,13 +370,14 @@ export default function Board({
             <select
               value={assignedFilter}
               onChange={(e) => setAssignedFilter(e.target.value)}
-              className="w-full md:w-[240px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              className="w-full md:w-[260px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
             >
               <option value="all">All (Assigned + Unassigned)</option>
               <option value="unassigned">Unassigned Only</option>
-              {assignedOptions.map((email) => (
-                <option key={email} value={email}>
-                  Assigned: {email}
+
+              {assignedOptions.map((agentId) => (
+                <option key={agentId} value={agentId}>
+                  Assigned: {getAgentLabel(agentId)}
                 </option>
               ))}
             </select>
@@ -537,8 +588,6 @@ export default function Board({
             </button>
 
             <div className="my-1 border-t border-zinc-100" />
-
-            {/* ✅ Your Assign Lead option already works on your side — keep it as-is if you already implemented it elsewhere */}
 
             <button
               type="button"
