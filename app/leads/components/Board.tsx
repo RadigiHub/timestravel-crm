@@ -13,8 +13,8 @@ import { arrayMove } from "@dnd-kit/sortable";
 
 import Column from "./Column";
 import AddLeadModal from "./AddLeadModal";
-import { moveLeadAction, listAgentsAction } from "../actions";
-import type { Lead, LeadStatus } from "../actions";
+import { moveLeadAction, listAgentsAction, assignLeadAction } from "../actions";
+import type { Lead, LeadStatus, Agent } from "../actions";
 
 function normalizeLead(l: any): Lead {
   return {
@@ -60,7 +60,15 @@ function safeIncludes(hay: string | null | undefined, needle: string) {
 type AgentLite = {
   id: string;
   full_name?: string | null;
+  email?: string | null;
+  role?: string | null;
 };
+
+function isAgentsOk(
+  res: any
+): res is { ok: true; agents: Agent[] } {
+  return !!res && res.ok === true && Array.isArray(res.agents);
+}
 
 export default function Board({
   statuses,
@@ -70,9 +78,7 @@ export default function Board({
   initialLeads: Lead[];
 }) {
   const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    })
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
 
   const [leads, setLeads] = React.useState<Lead[]>(
@@ -108,6 +114,7 @@ export default function Board({
 
   // ✅ Agents map (for showing names instead of UUIDs)
   const [agentsById, setAgentsById] = React.useState<Record<string, AgentLite>>({});
+  const [agentsList, setAgentsList] = React.useState<AgentLite[]>([]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -117,19 +124,35 @@ export default function Board({
         const res = await listAgentsAction();
         if (cancelled) return;
 
-        // ✅ IMPORTANT: proper type narrowing (fixes build error)
-        if (!res || res.ok !== true) return;
+        if (!isAgentsOk(res)) return;
 
         const map: Record<string, AgentLite> = {};
-        for (const a of res.agents ?? []) {
-          const id = a?.id as string;
+        const list: AgentLite[] = [];
+
+        for (const a of res.agents) {
+          const id = (a as any).id as string;
           if (!id) continue;
-          map[id] = {
+
+          const item: AgentLite = {
             id,
-            full_name: (a as any)?.full_name ?? null,
+            full_name: (a as any).full_name ?? null,
+            email: (a as any).email ?? null,
+            role: (a as any).role ?? null,
           };
+
+          map[id] = item;
+          list.push(item);
         }
+
+        // sort list by name/email
+        list.sort((x, y) => {
+          const ax = (x.full_name || x.email || x.id).toLowerCase();
+          const ay = (y.full_name || y.email || y.id).toLowerCase();
+          return ax.localeCompare(ay);
+        });
+
         setAgentsById(map);
+        setAgentsList(list);
       } catch {
         // ignore
       }
@@ -145,7 +168,8 @@ export default function Board({
       const a = agentsById[agentId];
       const name = a?.full_name?.trim();
       if (name) return name;
-      // fallback: short uuid
+      const em = a?.email?.trim();
+      if (em) return em;
       return agentId.length > 10 ? `${agentId.slice(0, 8)}…` : agentId;
     },
     [agentsById]
@@ -159,15 +183,14 @@ export default function Board({
 
   const passesFilters = React.useCallback(
     (lead: Lead) => {
-      // assigned filter
       if (assignedFilter === "unassigned") {
         if (lead.assigned_to) return false;
       } else if (assignedFilter !== "all") {
         if ((lead.assigned_to ?? "") !== assignedFilter) return false;
       }
 
-      // search filter
       if (!searchNeedle) return true;
+
       return (
         safeIncludes(lead.full_name, searchNeedle) ||
         safeIncludes(lead.phone, searchNeedle) ||
@@ -180,12 +203,9 @@ export default function Board({
     [assignedFilter, searchNeedle]
   );
 
-  // Build a set of allowed lead IDs based on filters (so Column works unchanged)
   const allowedLeadIds = React.useMemo(() => {
     const set = new Set<string>();
-    for (const l of leads) {
-      if (passesFilters(l)) set.add(l.id);
-    }
+    for (const l of leads) if (passesFilters(l)) set.add(l.id);
     return set;
   }, [leads, passesFilters]);
 
@@ -220,9 +240,7 @@ export default function Board({
       if (ids.includes(overId)) toStatusId = s.id;
     }
 
-    if (!toStatusId && orderByStatus[overId]) {
-      toStatusId = overId;
-    }
+    if (!toStatusId && orderByStatus[overId]) toStatusId = overId;
 
     if (!fromStatusId || !toStatusId) return;
 
@@ -234,8 +252,7 @@ export default function Board({
 
     if (fromStatusId === toStatusId) {
       const reordered = arrayMove(fromIds, oldIndex, newIndex < 0 ? fromIds.length - 1 : newIndex);
-      const next = { ...orderByStatus, [fromStatusId]: reordered };
-      setOrderByStatus(next);
+      setOrderByStatus((prev) => ({ ...prev, [fromStatusId]: reordered }));
 
       setLeads((prev) =>
         prev.map((l) => {
@@ -256,16 +273,14 @@ export default function Board({
     }
 
     fromIds.splice(oldIndex, 1);
-
     const insertIndex = newIndex >= 0 ? newIndex : toIds.length;
     toIds.splice(insertIndex, 0, activeId);
 
-    const next = {
-      ...orderByStatus,
+    setOrderByStatus((prev) => ({
+      ...prev,
       [fromStatusId]: fromIds,
       [toStatusId]: toIds,
-    };
-    setOrderByStatus(next);
+    }));
 
     setLeads((prev) =>
       prev.map((l) => {
@@ -321,14 +336,35 @@ export default function Board({
     return parts.length ? parts.join("  ") : "—";
   };
 
-  // ✅ Dropdown options based on leads + show agent names via agentsById
+  // ✅ dropdown options from leads (assigned ids) and show labels via agent map
   const assignedAgentIds = React.useMemo(() => {
     const ids = new Set<string>();
-    for (const l of leads) {
-      if (l.assigned_to) ids.add(l.assigned_to);
-    }
+    for (const l of leads) if (l.assigned_to) ids.add(l.assigned_to);
     return Array.from(ids).sort((a, b) => getAgentLabel(a).localeCompare(getAgentLabel(b)));
   }, [leads, getAgentLabel]);
+
+  // ✅ Assign/Unassign handler (updates UI instantly)
+  async function setLeadAssignee(leadId: string, assigneeId: string | null) {
+    const prev = leadsById[leadId];
+    if (!prev) return;
+
+    // optimistic UI
+    setLeads((cur) => cur.map((l) => (l.id === leadId ? { ...l, assigned_to: assigneeId } : l)));
+
+    try {
+      const res = await assignLeadAction({ lead_id: leadId, assigned_to: assigneeId });
+      if (!res || (res as any).ok !== true) {
+        // rollback
+        setLeads((cur) => cur.map((l) => (l.id === leadId ? prev : l)));
+        return;
+      }
+      const updated = normalizeLead((res as any).lead);
+      setLeads((cur) => cur.map((l) => (l.id === leadId ? updated : l)));
+    } catch {
+      // rollback
+      setLeads((cur) => cur.map((l) => (l.id === leadId ? prev : l)));
+    }
+  }
 
   return (
     <div className="mt-5">
@@ -546,7 +582,7 @@ export default function Board({
       {actionLead && actionAnchor && (
         <>
           <div className="fixed inset-0 z-50" onMouseDown={closeActions} />
-          <div style={menuStyle} className="z-[60] w-56 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
+          <div style={menuStyle} className="z-[60] w-60 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
             <button
               type="button"
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
@@ -579,6 +615,44 @@ export default function Board({
             >
               Email
             </button>
+
+            <div className="my-1 border-t border-zinc-100" />
+
+            {/* ✅ ASSIGN LEAD */}
+            <div className="px-2 py-2">
+              <div className="mb-1 text-xs font-medium text-zinc-500">Assign Lead</div>
+
+              <select
+                value={actionLead.assigned_to ?? ""}
+                onChange={async (e) => {
+                  const v = e.target.value;
+                  // "" => unassign
+                  const nextAssignee = v ? v : null;
+                  const leadId = actionLead.id;
+
+                  // update current actionLead too (so dropdown updates instantly)
+                  setActionLead((cur) => (cur ? { ...cur, assigned_to: nextAssignee } : cur));
+
+                  await setLeadAssignee(leadId, nextAssignee);
+                }}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+              >
+                <option value="">Unassigned</option>
+                {agentsList.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.full_name || a.email || a.id}
+                  </option>
+                ))}
+              </select>
+
+              {actionLead.assigned_to ? (
+                <div className="mt-1 text-[11px] text-zinc-500">
+                  Current: <span className="font-medium text-zinc-700">{getAgentLabel(actionLead.assigned_to)}</span>
+                </div>
+              ) : (
+                <div className="mt-1 text-[11px] text-zinc-500">Current: Unassigned</div>
+              )}
+            </div>
 
             <div className="my-1 border-t border-zinc-100" />
 
