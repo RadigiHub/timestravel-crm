@@ -31,6 +31,7 @@ function normalizeLead(l: any): Lead {
     last_activity_at: l.last_activity_at ?? null,
     created_at: l.created_at ?? "",
     updated_at: l.updated_at ?? "",
+
     details: l.details ?? {},
 
     trip_type: (l.trip_type ?? null) as any,
@@ -59,7 +60,6 @@ function safeIncludes(hay: string | null | undefined, needle: string) {
 type AgentLite = {
   id: string;
   full_name?: string | null;
-  role?: string | null;
 };
 
 export default function Board({
@@ -85,17 +85,14 @@ export default function Board({
     return map;
   }, [leads]);
 
-  const [orderByStatus, setOrderByStatus] = React.useState<Record<string, string[]>>(
-    {}
-  );
+  const [orderByStatus, setOrderByStatus] = React.useState<Record<string, string[]>>({});
 
   React.useEffect(() => {
     const next: Record<string, string[]> = {};
     for (const s of statuses) next[s.id] = [];
 
     const sorted = [...leads].sort((a, b) => {
-      if (a.status_id === b.status_id)
-        return (a.position ?? 0) - (b.position ?? 0);
+      if (a.status_id === b.status_id) return (a.position ?? 0) - (b.position ?? 0);
       return a.status_id.localeCompare(b.status_id);
     });
 
@@ -109,10 +106,8 @@ export default function Board({
     setOrderByStatus(next);
   }, [statuses, leads]);
 
-  // ✅ Agents map (UUID -> name)
-  const [agentsById, setAgentsById] = React.useState<Record<string, AgentLite>>(
-    {}
-  );
+  // ✅ Agents map (for showing names instead of UUIDs)
+  const [agentsById, setAgentsById] = React.useState<Record<string, AgentLite>>({});
 
   React.useEffect(() => {
     let cancelled = false;
@@ -122,17 +117,16 @@ export default function Board({
         const res = await listAgentsAction();
         if (cancelled) return;
 
-        if (!res || (res as any).ok !== true) return;
+        if (!res || res.ok !== true) return;
 
-        const agents = (res as { ok: true; agents: Agent[] }).agents ?? [];
+        const agents = res.agents ?? [];
         const map: Record<string, AgentLite> = {};
-        for (const a of agents) {
+        for (const a of agents as Agent[]) {
           const id = (a as any).id as string;
           if (!id) continue;
           map[id] = {
             id,
             full_name: (a as any).full_name ?? null,
-            role: (a as any).role ?? null,
           };
         }
         setAgentsById(map);
@@ -171,6 +165,7 @@ export default function Board({
       }
 
       if (!searchNeedle) return true;
+
       return (
         safeIncludes(lead.full_name, searchNeedle) ||
         safeIncludes(lead.phone, searchNeedle) ||
@@ -185,16 +180,16 @@ export default function Board({
 
   const allowedLeadIds = React.useMemo(() => {
     const set = new Set<string>();
-    for (const l of leads) if (passesFilters(l)) set.add(l.id);
+    for (const l of leads) {
+      if (passesFilters(l)) set.add(l.id);
+    }
     return set;
   }, [leads, passesFilters]);
 
   const [viewLead, setViewLead] = React.useState<Lead | null>(null);
 
-  // ✅ Action menu state
   const [actionLead, setActionLead] = React.useState<Lead | null>(null);
-  const [actionAnchor, setActionAnchor] =
-    React.useState<HTMLButtonElement | null>(null);
+  const [actionAnchor, setActionAnchor] = React.useState<HTMLButtonElement | null>(null);
 
   function openActions(lead: Lead, anchor: HTMLButtonElement) {
     setActionLead(lead);
@@ -222,24 +217,20 @@ export default function Board({
       if (ids.includes(overId)) toStatusId = s.id;
     }
 
-    if (!toStatusId && orderByStatus[overId]) toStatusId = overId;
+    if (!toStatusId && orderByStatus[overId]) {
+      toStatusId = overId;
+    }
+
     if (!fromStatusId || !toStatusId) return;
 
     const fromIds = [...(orderByStatus[fromStatusId] ?? [])];
-    const toIds =
-      fromStatusId === toStatusId
-        ? fromIds
-        : [...(orderByStatus[toStatusId] ?? [])];
+    const toIds = fromStatusId === toStatusId ? fromIds : [...(orderByStatus[toStatusId] ?? [])];
 
     const oldIndex = fromIds.indexOf(activeId);
     const newIndex = toIds.indexOf(overId);
 
     if (fromStatusId === toStatusId) {
-      const reordered = arrayMove(
-        fromIds,
-        oldIndex,
-        newIndex < 0 ? fromIds.length - 1 : newIndex
-      );
+      const reordered = arrayMove(fromIds, oldIndex, newIndex < 0 ? fromIds.length - 1 : newIndex);
       const next = { ...orderByStatus, [fromStatusId]: reordered };
       setOrderByStatus(next);
 
@@ -257,10 +248,12 @@ export default function Board({
         fromOrderIds: reordered,
         toOrderIds: reordered,
       });
+
       return;
     }
 
     fromIds.splice(oldIndex, 1);
+
     const insertIndex = newIndex >= 0 ? newIndex : toIds.length;
     toIds.splice(insertIndex, 0, activeId);
 
@@ -273,12 +266,9 @@ export default function Board({
 
     setLeads((prev) =>
       prev.map((l) => {
-        if (l.id === activeId)
-          return { ...l, status_id: toStatusId!, position: insertIndex };
-        if (l.status_id === fromStatusId)
-          return { ...l, position: fromIds.indexOf(l.id) };
-        if (l.status_id === toStatusId)
-          return { ...l, position: toIds.indexOf(l.id) };
+        if (l.id === activeId) return { ...l, status_id: toStatusId!, position: insertIndex };
+        if (l.status_id === fromStatusId) return { ...l, position: fromIds.indexOf(l.id) };
+        if (l.status_id === toStatusId) return { ...l, position: toIds.indexOf(l.id) };
         return l;
       })
     );
@@ -309,11 +299,7 @@ export default function Board({
     navigator.clipboard?.writeText(text).catch(() => {});
   }
 
-  function openWhatsApp(
-    phone: string | null,
-    name: string | null,
-    customText?: string | null
-  ) {
+  function openWhatsApp(phone: string | null, name: string | null, customText?: string | null) {
     if (!phone) return;
     const msg = encodeURIComponent(
       customText?.trim()
@@ -328,43 +314,41 @@ export default function Board({
     const a = typeof l.adults === "number" ? l.adults : null;
     const c = typeof l.children === "number" ? l.children : null;
     const i = typeof l.infants === "number" ? l.infants : null;
-    const parts = [a != null ? `A:${a}` : null, c != null ? `C:${c}` : null, i != null ? `I:${i}` : null].filter(Boolean);
+    const parts = [
+      a != null ? `A:${a}` : null,
+      c != null ? `C:${c}` : null,
+      i != null ? `I:${i}` : null,
+    ].filter(Boolean);
     return parts.length ? parts.join("  ") : "—";
   };
 
-  // ✅ Assigned dropdown options: show only ids that exist in leads
+  // ✅ Dropdown options based on leads + show agent names via agentsById
   const assignedAgentIds = React.useMemo(() => {
     const ids = new Set<string>();
-    for (const l of leads) if (l.assigned_to) ids.add(l.assigned_to);
-    return Array.from(ids).sort((a, b) =>
-      getAgentLabel(a).localeCompare(getAgentLabel(b))
-    );
+    for (const l of leads) {
+      if (l.assigned_to) ids.add(l.assigned_to);
+    }
+    return Array.from(ids).sort((a, b) => getAgentLabel(a).localeCompare(getAgentLabel(b)));
   }, [leads, getAgentLabel]);
 
-  // ✅ Full agent list for Assign menu (admins+agents)
+  // ✅ For Assign menu (prefer showing ALL agents; fallback: from leads)
   const allAgentIds = React.useMemo(() => {
-    const ids = Object.keys(agentsById ?? {});
-    return ids.sort((a, b) => getAgentLabel(a).localeCompare(getAgentLabel(b)));
-  }, [agentsById, getAgentLabel]);
-
-  async function assignLeadUI(leadId: string, agentId: string | null) {
-    // optimistic
-    setLeads((prev) =>
-      prev.map((l) => (l.id === leadId ? { ...l, assigned_to: agentId } : l))
-    );
-
-    const res = await assignLeadAction({ lead_id: leadId, assigned_to: agentId });
-    if (!res || (res as any).ok !== true) {
-      // rollback by refetch not present, so just revert optimistic to previous state using leadsById snapshot
-      const old = leadsById[leadId];
-      setLeads((prev) =>
-        prev.map((l) => (l.id === leadId ? { ...l, assigned_to: old?.assigned_to ?? null } : l))
-      );
-      return;
+    const ids = new Set<string>(Object.keys(agentsById));
+    if (!ids.size) {
+      for (const l of leads) if (l.assigned_to) ids.add(l.assigned_to);
     }
+    return Array.from(ids).sort((a, b) => getAgentLabel(a).localeCompare(getAgentLabel(b)));
+  }, [agentsById, leads, getAgentLabel]);
 
-    const updated = (res as any).lead as Lead;
-    setLeads((prev) => prev.map((l) => (l.id === updated.id ? normalizeLead(updated) : l)));
+  async function assignLead(leadId: string, agentId: string | null) {
+    const res = await assignLeadAction({ lead_id: leadId, assigned_to: agentId });
+    if (!res || res.ok !== true) return;
+
+    const updated = normalizeLead(res.lead);
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, assigned_to: updated.assigned_to } : l)));
+
+    // keep actionLead in sync (so label updates instantly)
+    setActionLead((prev) => (prev && prev.id === leadId ? { ...prev, assigned_to: updated.assigned_to } : prev));
   }
 
   return (
@@ -417,19 +401,13 @@ export default function Board({
 
           <div className="text-xs text-zinc-500">
             Showing{" "}
-            <span className="font-semibold text-zinc-700">
-              {allowedLeadIds.size}
-            </span>{" "}
+            <span className="font-semibold text-zinc-700">{allowedLeadIds.size}</span>{" "}
             lead(s)
           </div>
         </div>
       </div>
 
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={onDragEnd}
-      >
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <div className="flex gap-4 overflow-x-auto pb-4">
           {statuses.map((s) => {
             const rawIds = orderByStatus[s.id] ?? [];
@@ -442,9 +420,7 @@ export default function Board({
                 leadIds={filteredIds}
                 leadsById={leadsById as any}
                 onView={(lead: Lead) => setViewLead(lead)}
-                onAction={(lead: Lead, anchor: HTMLButtonElement) =>
-                  openActions(lead, anchor)
-                }
+                onAction={(lead: Lead, anchor: HTMLButtonElement) => openActions(lead, anchor)}
               />
             );
           })}
@@ -461,9 +437,7 @@ export default function Board({
         >
           <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-              <div className="text-base font-semibold text-zinc-900">
-                Lead Details
-              </div>
+              <div className="text-base font-semibold text-zinc-900">Lead Details</div>
               <button
                 type="button"
                 className="rounded-lg px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100"
@@ -473,53 +447,39 @@ export default function Board({
               </button>
             </div>
 
-            <div className="space-y-4 p-5">
+            <div className="p-5 space-y-4">
               <div>
                 <div className="text-xs text-zinc-500">Name</div>
-                <div className="text-lg font-semibold text-zinc-900">
-                  {viewLead.full_name ?? "—"}
-                </div>
+                <div className="text-lg font-semibold text-zinc-900">{viewLead.full_name ?? "—"}</div>
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div>
                   <div className="text-xs text-zinc-500">Phone</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.phone ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.phone ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Email</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.email ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.email ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Source</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.source ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.source ?? "—"}</div>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <div>
                   <div className="text-xs text-zinc-500">Trip Type</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.trip_type ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.trip_type ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Cabin</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.cabin_class ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.cabin_class ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">PAX</div>
-                  <div className="text-sm text-zinc-800">
-                    {paxText(viewLead)}
-                  </div>
+                  <div className="text-sm text-zinc-800">{paxText(viewLead)}</div>
                 </div>
               </div>
 
@@ -527,8 +487,7 @@ export default function Board({
                 <div>
                   <div className="text-xs text-zinc-500">Route</div>
                   <div className="text-sm text-zinc-800">
-                    {(viewLead.departure ?? "—")} →{" "}
-                    {(viewLead.destination ?? "—")}
+                    {(viewLead.departure ?? "—")} → {(viewLead.destination ?? "—")}
                   </div>
                 </div>
                 <div>
@@ -543,45 +502,33 @@ export default function Board({
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div>
                   <div className="text-xs text-zinc-500">Budget</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.budget ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.budget ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Preferred Airline</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.preferred_airline ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.preferred_airline ?? "—"}</div>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div>
                   <div className="text-xs text-zinc-500">WhatsApp</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.whatsapp ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.whatsapp ?? "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs text-zinc-500">Follow-up Date</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.follow_up_date ?? "—"}
-                  </div>
+                  <div className="text-sm text-zinc-800">{viewLead.follow_up_date ?? "—"}</div>
                 </div>
               </div>
 
               <div>
                 <div className="text-xs text-zinc-500">Notes</div>
-                <div className="whitespace-pre-wrap text-sm text-zinc-800">
-                  {viewLead.notes ?? "—"}
-                </div>
+                <div className="whitespace-pre-wrap text-sm text-zinc-800">{viewLead.notes ?? "—"}</div>
               </div>
 
               <div>
                 <div className="text-xs text-zinc-500">WhatsApp Text</div>
-                <div className="whitespace-pre-wrap text-sm text-zinc-800">
-                  {viewLead.whatsapp_text ?? "—"}
-                </div>
+                <div className="whitespace-pre-wrap text-sm text-zinc-800">{viewLead.whatsapp_text ?? "—"}</div>
               </div>
 
               <div className="flex flex-wrap gap-2 pt-2">
@@ -626,12 +573,7 @@ export default function Board({
       {actionLead && actionAnchor && (
         <>
           <div className="fixed inset-0 z-50" onMouseDown={closeActions} />
-
-          <div
-            style={menuStyle}
-            className="z-[60] w-64 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg"
-            onMouseDown={(e) => e.stopPropagation()} // ✅ don't close when clicking inside
-          >
+          <div style={menuStyle} className="z-[60] w-64 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
             <button
               type="button"
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
@@ -648,11 +590,7 @@ export default function Board({
               className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
               onClick={() => {
                 closeActions();
-                openWhatsApp(
-                  actionLead.whatsapp ?? actionLead.phone,
-                  actionLead.full_name,
-                  actionLead.whatsapp_text
-                );
+                openWhatsApp(actionLead.whatsapp ?? actionLead.phone, actionLead.full_name, actionLead.whatsapp_text);
               }}
             >
               WhatsApp Message
@@ -672,27 +610,17 @@ export default function Board({
             <div className="my-1 border-t border-zinc-100" />
 
             {/* ✅ Assign Lead */}
-            <div className="px-2 py-2">
-              <div className="mb-1 text-xs font-semibold text-zinc-700">
-                Assign Lead
-              </div>
-
+            <div className="px-3 py-2">
+              <div className="mb-1 text-xs text-zinc-500">Assign Lead</div>
               <select
-                value={actionLead.assigned_to ?? "unassigned"}
+                value={actionLead.assigned_to ?? ""}
                 onChange={async (e) => {
                   const v = e.target.value;
-                  const newVal = v === "unassigned" ? null : v;
-
-                  // update local actionLead immediately
-                  setActionLead((prev) =>
-                    prev ? { ...prev, assigned_to: newVal } : prev
-                  );
-
-                  await assignLeadUI(actionLead.id, newVal);
+                  await assignLead(actionLead.id, v ? v : null);
                 }}
                 className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-2 text-sm outline-none focus:border-zinc-400"
               >
-                <option value="unassigned">Unassigned</option>
+                <option value="">Unassigned</option>
                 {allAgentIds.map((id) => (
                   <option key={id} value={id}>
                     {getAgentLabel(id)}
@@ -700,18 +628,12 @@ export default function Board({
                 ))}
               </select>
 
-              {actionLead.assigned_to ? (
-                <button
-                  type="button"
-                  className="mt-2 w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50"
-                  onClick={async () => {
-                    setActionLead((prev) => (prev ? { ...prev, assigned_to: null } : prev));
-                    await assignLeadUI(actionLead.id, null);
-                  }}
-                >
-                  Unassign
-                </button>
-              ) : null}
+              <div className="mt-1 text-[11px] text-zinc-500">
+                Current:{" "}
+                <span className="font-medium text-zinc-700">
+                  {actionLead.assigned_to ? getAgentLabel(actionLead.assigned_to) : "Unassigned"}
+                </span>
+              </div>
             </div>
 
             <div className="my-1 border-t border-zinc-100" />
