@@ -14,7 +14,7 @@ import { arrayMove } from "@dnd-kit/sortable";
 import Column from "./Column";
 import AddLeadModal from "./AddLeadModal";
 import { moveLeadAction, listAgentsAction } from "../actions";
-import type { Lead, LeadStatus, Agent } from "../actions";
+import type { Lead, LeadStatus } from "../actions";
 
 function normalizeLead(l: any): Lead {
   return {
@@ -60,7 +60,6 @@ function safeIncludes(hay: string | null | undefined, needle: string) {
 type AgentLite = {
   id: string;
   full_name?: string | null;
-  email?: string | null;
 };
 
 export default function Board({
@@ -118,20 +117,16 @@ export default function Board({
         const res = await listAgentsAction();
         if (cancelled) return;
 
-        if (!res || (res as any).ok !== true) {
-          // silently ignore if API fails; dropdown will fallback to IDs
-          return;
-        }
+        // ✅ IMPORTANT: proper type narrowing (fixes build error)
+        if (!res || res.ok !== true) return;
 
-        const agents = (res as { ok: true; agents: Agent[] }).agents ?? [];
         const map: Record<string, AgentLite> = {};
-        for (const a of agents) {
-          const id = (a as any).id as string;
+        for (const a of res.agents ?? []) {
+          const id = a?.id as string;
           if (!id) continue;
           map[id] = {
             id,
-            full_name: (a as any).full_name ?? null,
-            email: (a as any).email ?? null,
+            full_name: (a as any)?.full_name ?? null,
           };
         }
         setAgentsById(map);
@@ -150,15 +145,13 @@ export default function Board({
       const a = agentsById[agentId];
       const name = a?.full_name?.trim();
       if (name) return name;
-      const em = a?.email?.trim();
-      if (em) return em;
       // fallback: short uuid
       return agentId.length > 10 ? `${agentId.slice(0, 8)}…` : agentId;
     },
     [agentsById]
   );
 
-  // ✅ NEW: filters
+  // ✅ Filters
   const [search, setSearch] = React.useState("");
   const [assignedFilter, setAssignedFilter] = React.useState<string>("all"); // all | unassigned | agentId
 
@@ -312,9 +305,7 @@ export default function Board({
   function openWhatsApp(phone: string | null, name: string | null, customText?: string | null) {
     if (!phone) return;
     const msg = encodeURIComponent(
-      customText?.trim()
-        ? customText.trim()
-        : `Hi ${name ?? ""}, regarding your travel inquiry...`
+      customText?.trim() ? customText.trim() : `Hi ${name ?? ""}, regarding your travel inquiry...`
     );
     const digits = phone.replace(/[^\d]/g, "");
     window.open(`https://wa.me/${digits}?text=${msg}`, "_blank");
@@ -324,11 +315,9 @@ export default function Board({
     const a = typeof l.adults === "number" ? l.adults : null;
     const c = typeof l.children === "number" ? l.children : null;
     const i = typeof l.infants === "number" ? l.infants : null;
-    const parts = [
-      a != null ? `A:${a}` : null,
-      c != null ? `C:${c}` : null,
-      i != null ? `I:${i}` : null,
-    ].filter(Boolean);
+    const parts = [a != null ? `A:${a}` : null, c != null ? `C:${c}` : null, i != null ? `I:${i}` : null].filter(
+      Boolean
+    );
     return parts.length ? parts.join("  ") : "—";
   };
 
@@ -390,9 +379,7 @@ export default function Board({
           </div>
 
           <div className="text-xs text-zinc-500">
-            Showing{" "}
-            <span className="font-semibold text-zinc-700">{allowedLeadIds.size}</span>{" "}
-            lead(s)
+            Showing <span className="font-semibold text-zinc-700">{allowedLeadIds.size}</span> lead(s)
           </div>
         </div>
       </div>
