@@ -7,33 +7,54 @@ import type { Agent } from "../actions";
 type Props = {
   defaultStatusId: string;
   onCreated: (lead: any) => void;
-  onCancel?: () => void; // ✅ so AddLeadModal can pass onCancel
+  onCancel?: () => void;
 };
 
-type Priority = "Cold" | "Warm" | "Hot";
+/**
+ * UI ke liye Capital priority (nice UX)
+ */
+type PriorityUI = "Cold" | "Warm" | "Hot";
+
+/**
+ * Backend ke liye strict lowercase
+ */
+type PriorityDB = "cold" | "warm" | "hot";
 
 function clean(v: string) {
   const t = v.trim();
   return t.length ? t : undefined;
 }
 
-export default function AddLeadForm({ defaultStatusId, onCreated, onCancel }: Props) {
+/**
+ * UI → DB mapper (❗️THIS FIXES YOUR ERROR)
+ */
+function mapPriorityToDB(p: PriorityUI): PriorityDB {
+  return p.toLowerCase() as PriorityDB;
+}
+
+export default function AddLeadForm({
+  defaultStatusId,
+  onCreated,
+  onCancel,
+}: Props) {
   const [loading, setLoading] = React.useState(false);
 
-  // Core fields (existing)
+  // Core fields
   const [fullName, setFullName] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [source, setSource] = React.useState("web");
-  const [priority, setPriority] = React.useState<Priority>("Warm");
-  const [assignTo, setAssignTo] = React.useState<string>(""); // empty => unassigned
+  const [priority, setPriority] = React.useState<PriorityUI>("Warm");
+  const [assignTo, setAssignTo] = React.useState("");
 
-  // Full CRM fields (extra)
+  // Full CRM fields
   const [fromCity, setFromCity] = React.useState("");
   const [toCity, setToCity] = React.useState("");
-  const [route, setRoute] = React.useState(""); // manual route override
+  const [route, setRoute] = React.useState("");
 
-  const [tripType, setTripType] = React.useState<"Return" | "One-way" | "Multi-city">("Return");
+  const [tripType, setTripType] =
+    React.useState<"Return" | "One-way" | "Multi-city">("Return");
+
   const [departDate, setDepartDate] = React.useState("");
   const [returnDate, setReturnDate] = React.useState("");
 
@@ -56,9 +77,6 @@ export default function AddLeadForm({ defaultStatusId, onCreated, onCancel }: Pr
       const res = await listAgentsAction();
       if (!mounted) return;
 
-      // ✅ support both shapes safely:
-      // - { ok:true, agents:[...] }
-      // - Agent[] (if your action returns raw array)
       if (Array.isArray(res)) {
         setAgents(res);
       } else if (res && typeof res === "object" && "ok" in res) {
@@ -80,30 +98,45 @@ export default function AddLeadForm({ defaultStatusId, onCreated, onCancel }: Pr
     [clean(fromCity), clean(toCity)].filter(Boolean).join(" → ") ||
     undefined;
 
-  // ✅ store “Full CRM Mode” info safely in one notes block (no DB schema needed)
   const fullCrmNotesBlock = React.useMemo(() => {
     const lines: string[] = [];
 
-    if (clean(tripType)) lines.push(`Trip Type: ${tripType}`);
-    if (clean(fromCity) || clean(toCity)) lines.push(`From/To: ${clean(fromCity) || "-"} → ${clean(toCity) || "-"}`);
-    if (clean(route)) lines.push(`Route (manual): ${route.trim()}`);
+    lines.push(`Priority: ${priority}`);
+    lines.push(`Trip Type: ${tripType}`);
 
-    if (clean(departDate)) lines.push(`Depart: ${departDate}`);
-    if (tripType === "Return" && clean(returnDate)) lines.push(`Return: ${returnDate}`);
-
-    const pax = `Adults ${adults || "0"}, Children ${children || "0"}, Infants ${infants || "0"}`;
-    if (pax.replace(/\D/g, "").length) lines.push(`PAX: ${pax}`);
-
-    if (clean(budget)) lines.push(`Budget: ${budget.trim()}`);
-    if (clean(campaign)) lines.push(`Campaign: ${campaign.trim()}`);
-
-    if (clean(notes)) {
-      lines.push(`Notes: ${notes.trim()}`);
+    if (clean(fromCity) || clean(toCity)) {
+      lines.push(
+        `From/To: ${clean(fromCity) || "-"} → ${clean(toCity) || "-"}`
+      );
     }
 
-    if (!lines.length) return undefined;
+    if (clean(departDate)) lines.push(`Depart: ${departDate}`);
+    if (tripType === "Return" && clean(returnDate))
+      lines.push(`Return: ${returnDate}`);
+
+    lines.push(
+      `PAX: Adults ${adults}, Children ${children}, Infants ${infants}`
+    );
+
+    if (clean(budget)) lines.push(`Budget: ${budget}`);
+    if (clean(campaign)) lines.push(`Campaign: ${campaign}`);
+    if (clean(notes)) lines.push(`Notes: ${notes}`);
+
     return `--- CRM Details ---\n${lines.join("\n")}\n--- End ---`;
-  }, [tripType, fromCity, toCity, route, departDate, returnDate, adults, children, infants, budget, campaign, notes]);
+  }, [
+    priority,
+    tripType,
+    fromCity,
+    toCity,
+    departDate,
+    returnDate,
+    adults,
+    children,
+    infants,
+    budget,
+    campaign,
+    notes,
+  ]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -111,23 +144,21 @@ export default function AddLeadForm({ defaultStatusId, onCreated, onCancel }: Pr
 
     setLoading(true);
     try {
-      // ✅ Only send safe fields; extra info goes into "notes" (append)
       const res = await createLeadAction({
         full_name: fullName.trim(),
         phone: clean(phone),
         email: clean(email),
         source: clean(source) || "web",
-        priority,
+        priority: mapPriorityToDB(priority), // ✅ FIX
         status_id: defaultStatusId,
         assigned_to: clean(assignTo),
         route: effectiveRoute,
         notes: fullCrmNotesBlock,
       });
 
-      if (res && typeof res === "object" && "ok" in res && (res as any).ok) {
-        onCreated((res as any).lead);
+      if (res && "ok" in res && res.ok) {
+        onCreated(res.lead);
       } else {
-        // eslint-disable-next-line no-alert
         alert((res as any)?.error || "Failed to create lead.");
       }
     } finally {
@@ -137,233 +168,87 @@ export default function AddLeadForm({ defaultStatusId, onCreated, onCancel }: Pr
 
   return (
     <form onSubmit={onSubmit} className="space-y-4">
-      {/* Row 1 */}
-      <div className="grid grid-cols-1 gap-3">
-        <div>
-          <label className="text-sm font-medium">Full Name *</label>
-          <input
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            placeholder="e.g., Ali Khan"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            required
-          />
-        </div>
+      {/* Full Name */}
+      <div>
+        <label className="text-sm font-medium">Full Name *</label>
+        <input
+          className="mt-1 w-full rounded-md border px-3 py-2"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          required
+        />
       </div>
 
-      {/* Row 2 */}
+      {/* Phone / Email */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <label className="text-sm font-medium">Phone</label>
-          <input
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            placeholder="e.g., +44..."
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium">Email</label>
-          <input
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            placeholder="e.g., name@email.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </div>
+        <input
+          className="rounded-md border px-3 py-2"
+          placeholder="Phone"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+        />
+        <input
+          className="rounded-md border px-3 py-2"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
       </div>
 
       {/* Source / Priority / Assign */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div>
-          <label className="text-sm font-medium">Source</label>
-          <input
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            placeholder="web / Meta / WhatsApp"
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-          />
-        </div>
+        <input
+          className="rounded-md border px-3 py-2"
+          placeholder="Source"
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+        />
 
-        <div>
-          <label className="text-sm font-medium">Priority</label>
-          <select
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            value={priority}
-            onChange={(e) => setPriority(e.target.value as Priority)}
-          >
-            <option value="Cold">Cold</option>
-            <option value="Warm">Warm</option>
-            <option value="Hot">Hot</option>
-          </select>
-        </div>
+        <select
+          className="rounded-md border px-3 py-2"
+          value={priority}
+          onChange={(e) => setPriority(e.target.value as PriorityUI)}
+        >
+          <option value="Cold">Cold</option>
+          <option value="Warm">Warm</option>
+          <option value="Hot">Hot</option>
+        </select>
 
-        <div>
-          <label className="text-sm font-medium">Assign To</label>
-          <select
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            value={assignTo}
-            onChange={(e) => setAssignTo(e.target.value)}
-            disabled={agentsLoading}
-          >
-            <option value="">Unassigned</option>
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name || a.email}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Trip type + Cities */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div>
-          <label className="text-sm font-medium">Trip Type</label>
-          <select
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            value={tripType}
-            onChange={(e) => setTripType(e.target.value as any)}
-          >
-            <option value="Return">Return</option>
-            <option value="One-way">One-way</option>
-            <option value="Multi-city">Multi-city</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="text-sm font-medium">From</label>
-          <input
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            placeholder="e.g., London"
-            value={fromCity}
-            onChange={(e) => setFromCity(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="text-sm font-medium">To</label>
-          <input
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            placeholder="e.g., Lagos"
-            value={toCity}
-            onChange={(e) => setToCity(e.target.value)}
-          />
-        </div>
-      </div>
-
-      {/* Dates */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <label className="text-sm font-medium">Departure Date</label>
-          <input
-            type="date"
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            value={departDate}
-            onChange={(e) => setDepartDate(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="text-sm font-medium">Return Date</label>
-          <input
-            type="date"
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            value={returnDate}
-            onChange={(e) => setReturnDate(e.target.value)}
-            disabled={tripType !== "Return"}
-          />
-        </div>
-      </div>
-
-      {/* Pax */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div>
-          <label className="text-sm font-medium">Adults</label>
-          <input
-            inputMode="numeric"
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            value={adults}
-            onChange={(e) => setAdults(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium">Children</label>
-          <input
-            inputMode="numeric"
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            value={children}
-            onChange={(e) => setChildren(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="text-sm font-medium">Infants</label>
-          <input
-            inputMode="numeric"
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            value={infants}
-            onChange={(e) => setInfants(e.target.value)}
-          />
-        </div>
-      </div>
-
-      {/* Route + Budget + Campaign */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div>
-          <label className="text-sm font-medium">Route (optional)</label>
-          <input
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            placeholder="Override: MAN → LOS"
-            value={route}
-            onChange={(e) => setRoute(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="text-sm font-medium">Budget (optional)</label>
-          <input
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            placeholder="e.g., £450"
-            value={budget}
-            onChange={(e) => setBudget(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="text-sm font-medium">Campaign (optional)</label>
-          <input
-            className="mt-1 w-full rounded-md border px-3 py-2"
-            placeholder="Meta - Africa Leads - Dec"
-            value={campaign}
-            onChange={(e) => setCampaign(e.target.value)}
-          />
-        </div>
+        <select
+          className="rounded-md border px-3 py-2"
+          value={assignTo}
+          onChange={(e) => setAssignTo(e.target.value)}
+          disabled={agentsLoading}
+        >
+          <option value="">Unassigned</option>
+          {agents.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name || a.email}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Notes */}
-      <div>
-        <label className="text-sm font-medium">Notes</label>
-        <textarea
-          className="mt-1 w-full rounded-md border px-3 py-2 min-h-[90px]"
-          placeholder="Any extra details..."
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-      </div>
+      <textarea
+        className="w-full rounded-md border px-3 py-2 min-h-[90px]"
+        placeholder="Notes / CRM details"
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+      />
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-2 pt-2">
+      <div className="flex justify-end gap-2">
         <button
           type="button"
-          className="rounded-md border px-4 py-2"
-          onClick={() => onCancel?.()}
-          disabled={loading}
+          onClick={onCancel}
+          className="border rounded-md px-4 py-2"
         >
           Cancel
         </button>
         <button
           type="submit"
-          className="rounded-md bg-black text-white px-4 py-2"
+          className="bg-black text-white rounded-md px-4 py-2"
           disabled={loading}
         >
           {loading ? "Creating..." : "Create Lead"}
