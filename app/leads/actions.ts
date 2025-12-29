@@ -2,87 +2,73 @@
 
 import { supabaseServer } from "@/lib/supabase/server";
 
-/**
- * This wrapper makes it work whether `supabaseServer` is:
- * - a function returning a client, OR
- * - already a client instance
- */
-function getSupabase() {
-  const anySb: any = supabaseServer as any;
-  return typeof anySb === "function" ? anySb() : anySb;
-}
-
-// ---------- Types (components import these from ../actions) ----------
 export type LeadStatus = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
-export type LeadHeat = "cold" | "warm" | "hot";
 
 export type Agent = {
   id: string;
   name: string;
   email?: string | null;
-  handle?: string | null; // e.g. "shahyan"
 };
 
 export type Lead = {
   id: string;
-  name: string;
+  full_name: string;
   phone?: string | null;
   email?: string | null;
-  source?: string | null; // "Meta" / "web" etc
-  route?: string | null;  // optional
+  source?: string | null;
+  route?: string | null;
   status: LeadStatus;
-  heat?: LeadHeat | null;
-  assigned_to?: string | null; // agent handle OR name (your UI shows #handle)
+  temperature?: string | null; // warm/hot/cold (optional)
+  assigned_to?: string | null; // agent id
   created_at?: string | null;
 };
 
 export type CreateLeadInput = {
-  name: string;
-  phone?: string;
-  email?: string;
-  source?: string;
-  route?: string;
-  heat?: LeadHeat;
-  assigned_to?: string; // optional
+  full_name: string;
+  phone?: string; // undefined if empty
+  email?: string; // undefined if empty
+  source?: string; // default "web"
+  route?: string; // undefined if empty
+  temperature?: string; // optional
+  assigned_to?: string; // optional (agent id)
 };
 
-export type CreateLeadResult =
-  | { ok: true; lead: Lead }
-  | { ok: false; message: string };
-
-// ---------- Actions ----------
 export async function listAgentsAction(): Promise<Agent[]> {
-  const supabase = getSupabase();
+  const supabase = supabaseServer();
 
-  // Adjust table/columns if needed, but this will compile and deploy.
+  // NOTE: agar tumhare DB me table ka naam different hai (agents/profiles/users),
+  // yahan sirf table name change karna hoga.
   const { data, error } = await supabase
     .from("agents")
-    .select("id,name,email,handle")
+    .select("id,name,email")
     .order("name", { ascending: true });
 
   if (error) {
-    // Return empty list instead of crashing UI
+    console.error("listAgentsAction error:", error.message);
     return [];
   }
 
-  return (data ?? []) as Agent[];
+  return (data ?? []).map((a: any) => ({
+    id: String(a.id),
+    name: String(a.name ?? ""),
+    email: a.email ?? null,
+  }));
 }
 
-export async function createLeadAction(input: CreateLeadInput): Promise<CreateLeadResult> {
-  const supabase = getSupabase();
+export async function createLeadAction(input: CreateLeadInput): Promise<
+  | { ok: true; lead: Lead }
+  | { ok: false; error: string }
+> {
+  const supabase = supabaseServer();
 
-  if (!input?.name || input.name.trim().length < 2) {
-    return { ok: false, message: "Name is required." };
-  }
-
-  const payload: Partial<Lead> = {
-    name: input.name.trim(),
+  const payload = {
+    full_name: input.full_name.trim(),
     phone: input.phone?.trim() || null,
     email: input.email?.trim() || null,
-    source: input.source?.trim() || null,
+    source: (input.source?.trim() || "web") as string,
     route: input.route?.trim() || null,
-    heat: input.heat || "warm",
-    status: "New",
+    status: "New" as LeadStatus,
+    temperature: input.temperature?.trim() || "warm",
     assigned_to: input.assigned_to?.trim() || null,
   };
 
@@ -93,36 +79,47 @@ export async function createLeadAction(input: CreateLeadInput): Promise<CreateLe
     .single();
 
   if (error) {
-    return { ok: false, message: error.message };
+    console.error("createLeadAction error:", error.message);
+    return { ok: false, error: error.message };
   }
 
   return { ok: true, lead: data as Lead };
 }
 
-export async function moveLeadAction(leadId: string, newStatus: LeadStatus) {
-  const supabase = getSupabase();
-
-  if (!leadId) return { ok: false, message: "Missing leadId" };
+export async function moveLeadAction(args: {
+  leadId: string;
+  toStatus: LeadStatus;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = supabaseServer();
 
   const { error } = await supabase
     .from("leads")
-    .update({ status: newStatus })
-    .eq("id", leadId);
+    .update({ status: args.toStatus })
+    .eq("id", args.leadId);
 
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("moveLeadAction error:", error.message);
+    return { ok: false, error: error.message };
+  }
+
   return { ok: true };
 }
 
-export async function assignLeadAction(leadId: string, assignedTo: string | null) {
-  const supabase = getSupabase();
-
-  if (!leadId) return { ok: false, message: "Missing leadId" };
+export async function assignLeadAction(args: {
+  leadId: string;
+  agentId: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const supabase = supabaseServer();
 
   const { error } = await supabase
     .from("leads")
-    .update({ assigned_to: assignedTo ? assignedTo.trim() : null })
-    .eq("id", leadId);
+    .update({ assigned_to: args.agentId })
+    .eq("id", args.leadId);
 
-  if (error) return { ok: false, message: error.message };
+  if (error) {
+    console.error("assignLeadAction error:", error.message);
+    return { ok: false, error: error.message };
+  }
+
   return { ok: true };
 }
