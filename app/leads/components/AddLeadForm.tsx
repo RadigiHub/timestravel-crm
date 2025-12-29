@@ -2,219 +2,371 @@
 
 import * as React from "react";
 import { createLeadAction, listAgentsAction } from "../actions";
-import type { LeadStatus, Agent, CreateLeadInput } from "../actions";
+import type { Agent } from "../actions";
 
-export default function AddLeadForm({
-  statuses,
-  defaultStatusId,
-  onCreated,
-  onCancel,
-}: {
-  statuses?: LeadStatus[];
+type Props = {
   defaultStatusId: string;
   onCreated: (lead: any) => void;
-  onCancel?: () => void;
-}) {
+  onCancel?: () => void; // ✅ so AddLeadModal can pass onCancel
+};
+
+type Priority = "Cold" | "Warm" | "Hot";
+
+function clean(v: string) {
+  const t = v.trim();
+  return t.length ? t : undefined;
+}
+
+export default function AddLeadForm({ defaultStatusId, onCreated, onCancel }: Props) {
+  const [loading, setLoading] = React.useState(false);
+
+  // Core fields (existing)
   const [fullName, setFullName] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [source, setSource] = React.useState("web");
-  const [priority, setPriority] = React.useState<"hot" | "warm" | "cold">("warm");
-  const [statusId, setStatusId] = React.useState(defaultStatusId);
-  const [assignedTo, setAssignedTo] = React.useState<string>("");
+  const [priority, setPriority] = React.useState<Priority>("Warm");
+  const [assignTo, setAssignTo] = React.useState<string>(""); // empty => unassigned
 
+  // Full CRM fields (extra)
+  const [fromCity, setFromCity] = React.useState("");
+  const [toCity, setToCity] = React.useState("");
+  const [route, setRoute] = React.useState(""); // manual route override
+
+  const [tripType, setTripType] = React.useState<"Return" | "One-way" | "Multi-city">("Return");
+  const [departDate, setDepartDate] = React.useState("");
+  const [returnDate, setReturnDate] = React.useState("");
+
+  const [adults, setAdults] = React.useState("1");
+  const [children, setChildren] = React.useState("0");
+  const [infants, setInfants] = React.useState("0");
+
+  const [budget, setBudget] = React.useState("");
+  const [campaign, setCampaign] = React.useState("");
+  const [notes, setNotes] = React.useState("");
+
+  // Agents
   const [agents, setAgents] = React.useState<Agent[]>([]);
-  const [loadingAgents, setLoadingAgents] = React.useState(false);
-
-  const [saving, setSaving] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
+  const [agentsLoading, setAgentsLoading] = React.useState(true);
 
   React.useEffect(() => {
     let mounted = true;
-
     (async () => {
-      try {
-        setLoadingAgents(true);
-        const res = await listAgentsAction();
-        if (!mounted) return;
+      setAgentsLoading(true);
+      const res = await listAgentsAction();
+      if (!mounted) return;
 
-        if (res && (res as any).ok === true) {
-          setAgents((res as { ok: true; agents: Agent[] }).agents ?? []);
-        } else {
-          setAgents([]);
-        }
-      } catch {
+      // ✅ support both shapes safely:
+      // - { ok:true, agents:[...] }
+      // - Agent[] (if your action returns raw array)
+      if (Array.isArray(res)) {
+        setAgents(res);
+      } else if (res && typeof res === "object" && "ok" in res) {
+        if ((res as any).ok) setAgents((res as any).agents || []);
+        else setAgents([]);
+      } else {
         setAgents([]);
-      } finally {
-        if (mounted) setLoadingAgents(false);
       }
-    })();
 
+      setAgentsLoading(false);
+    })();
     return () => {
       mounted = false;
     };
   }, []);
 
+  const effectiveRoute =
+    clean(route) ||
+    [clean(fromCity), clean(toCity)].filter(Boolean).join(" → ") ||
+    undefined;
+
+  // ✅ store “Full CRM Mode” info safely in one notes block (no DB schema needed)
+  const fullCrmNotesBlock = React.useMemo(() => {
+    const lines: string[] = [];
+
+    if (clean(tripType)) lines.push(`Trip Type: ${tripType}`);
+    if (clean(fromCity) || clean(toCity)) lines.push(`From/To: ${clean(fromCity) || "-"} → ${clean(toCity) || "-"}`);
+    if (clean(route)) lines.push(`Route (manual): ${route.trim()}`);
+
+    if (clean(departDate)) lines.push(`Depart: ${departDate}`);
+    if (tripType === "Return" && clean(returnDate)) lines.push(`Return: ${returnDate}`);
+
+    const pax = `Adults ${adults || "0"}, Children ${children || "0"}, Infants ${infants || "0"}`;
+    if (pax.replace(/\D/g, "").length) lines.push(`PAX: ${pax}`);
+
+    if (clean(budget)) lines.push(`Budget: ${budget.trim()}`);
+    if (clean(campaign)) lines.push(`Campaign: ${campaign.trim()}`);
+
+    if (clean(notes)) {
+      lines.push(`Notes: ${notes.trim()}`);
+    }
+
+    if (!lines.length) return undefined;
+    return `--- CRM Details ---\n${lines.join("\n")}\n--- End ---`;
+  }, [tripType, fromCity, toCity, route, departDate, returnDate, adults, children, infants, budget, campaign, notes]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
+    if (!fullName.trim()) return;
 
-    const name = fullName.trim();
-    if (!name) {
-      setError("Full name is required.");
-      return;
-    }
-    if (!statusId) {
-      setError("Status is required.");
-      return;
-    }
-
-    const phoneVal = phone.trim();
-    const emailVal = email.trim();
-    const sourceVal = source.trim();
-
-    const payload: CreateLeadInput = {
-      full_name: name,
-      status_id: statusId,
-      priority,
-      source: sourceVal ? sourceVal : "web",
-      phone: phoneVal ? phoneVal : null,
-      email: emailVal ? emailVal : null,
-      assigned_to: assignedTo ? assignedTo : null,
-    };
-
+    setLoading(true);
     try {
-      setSaving(true);
-      const res = await createLeadAction(payload);
-      if (!res || (res as any).ok !== true) {
-        setError((res as any)?.error ?? "Failed to create lead.");
-        return;
-      }
+      // ✅ Only send safe fields; extra info goes into "notes" (append)
+      const res = await createLeadAction({
+        full_name: fullName.trim(),
+        phone: clean(phone),
+        email: clean(email),
+        source: clean(source) || "web",
+        priority,
+        status_id: defaultStatusId,
+        assigned_to: clean(assignTo),
+        route: effectiveRoute,
+        notes: fullCrmNotesBlock,
+      });
 
-      onCreated((res as any).lead);
-    } catch (err: any) {
-      setError(err?.message ?? "Failed to create lead.");
+      if (res && typeof res === "object" && "ok" in res && (res as any).ok) {
+        onCreated((res as any).lead);
+      } else {
+        // eslint-disable-next-line no-alert
+        alert((res as any)?.error || "Failed to create lead.");
+      }
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   }
 
-  const hasStatuses = (statuses ?? []).length > 0;
-
   return (
-    <form onSubmit={onSubmit} className="space-y-3">
-      {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
+    <form onSubmit={onSubmit} className="space-y-4">
+      {/* Row 1 */}
+      <div className="grid grid-cols-1 gap-3">
+        <div>
+          <label className="text-sm font-medium">Full Name *</label>
+          <input
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            placeholder="e.g., Ali Khan"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            required
+          />
         </div>
-      ) : null}
+      </div>
 
+      {/* Row 2 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="text-sm font-medium">Phone</label>
+          <input
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            placeholder="e.g., +44..."
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium">Email</label>
+          <input
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            placeholder="e.g., name@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Source / Priority / Assign */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label className="text-sm font-medium">Source</label>
+          <input
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            placeholder="web / Meta / WhatsApp"
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">Priority</label>
+          <select
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as Priority)}
+          >
+            <option value="Cold">Cold</option>
+            <option value="Warm">Warm</option>
+            <option value="Hot">Hot</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">Assign To</label>
+          <select
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            value={assignTo}
+            onChange={(e) => setAssignTo(e.target.value)}
+            disabled={agentsLoading}
+          >
+            <option value="">Unassigned</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name || a.email}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Trip type + Cities */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label className="text-sm font-medium">Trip Type</label>
+          <select
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            value={tripType}
+            onChange={(e) => setTripType(e.target.value as any)}
+          >
+            <option value="Return">Return</option>
+            <option value="One-way">One-way</option>
+            <option value="Multi-city">Multi-city</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">From</label>
+          <input
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            placeholder="e.g., London"
+            value={fromCity}
+            onChange={(e) => setFromCity(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">To</label>
+          <input
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            placeholder="e.g., Lagos"
+            value={toCity}
+            onChange={(e) => setToCity(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Dates */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="text-sm font-medium">Departure Date</label>
+          <input
+            type="date"
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            value={departDate}
+            onChange={(e) => setDepartDate(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">Return Date</label>
+          <input
+            type="date"
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            value={returnDate}
+            onChange={(e) => setReturnDate(e.target.value)}
+            disabled={tripType !== "Return"}
+          />
+        </div>
+      </div>
+
+      {/* Pax */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label className="text-sm font-medium">Adults</label>
+          <input
+            inputMode="numeric"
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            value={adults}
+            onChange={(e) => setAdults(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium">Children</label>
+          <input
+            inputMode="numeric"
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            value={children}
+            onChange={(e) => setChildren(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium">Infants</label>
+          <input
+            inputMode="numeric"
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            value={infants}
+            onChange={(e) => setInfants(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Route + Budget + Campaign */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label className="text-sm font-medium">Route (optional)</label>
+          <input
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            placeholder="Override: MAN → LOS"
+            value={route}
+            onChange={(e) => setRoute(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">Budget (optional)</label>
+          <input
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            placeholder="e.g., £450"
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">Campaign (optional)</label>
+          <input
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            placeholder="Meta - Africa Leads - Dec"
+            value={campaign}
+            onChange={(e) => setCampaign(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Notes */}
       <div>
-        <label className="mb-1 block text-xs font-medium text-zinc-600">Full Name *</label>
-        <input
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-          placeholder="e.g., Ali Khan"
+        <label className="text-sm font-medium">Notes</label>
+        <textarea
+          className="mt-1 w-full rounded-md border px-3 py-2 min-h-[90px]"
+          placeholder="Any extra details..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-600">Phone</label>
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            placeholder="e.g., +44..."
-          />
-        </div>
-
-        <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-600">Email</label>
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            placeholder="e.g., name@email.com"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-600">Source</label>
-          <input
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            placeholder="web / meta / whatsapp..."
-          />
-        </div>
-
-        <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-600">Priority</label>
-          <select
-            value={priority}
-            onChange={(e) => setPriority(e.target.value as any)}
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-          >
-            <option value="hot">Hot</option>
-            <option value="warm">Warm</option>
-            <option value="cold">Cold</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-600">Assign To</label>
-          <select
-            value={assignedTo}
-            onChange={(e) => setAssignedTo(e.target.value)}
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-          >
-            <option value="">Unassigned</option>
-            {loadingAgents ? <option>Loading…</option> : null}
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.full_name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {hasStatuses ? (
-        <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-600">Status</label>
-          <select
-            value={statusId}
-            onChange={(e) => setStatusId(e.target.value)}
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-          >
-            {(statuses ?? []).map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : null}
-
+      {/* Actions */}
       <div className="flex items-center justify-end gap-2 pt-2">
         <button
           type="button"
+          className="rounded-md border px-4 py-2"
           onClick={() => onCancel?.()}
-          className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
+          disabled={loading}
         >
           Cancel
         </button>
-
         <button
-          disabled={saving}
           type="submit"
-          className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+          className="rounded-md bg-black text-white px-4 py-2"
+          disabled={loading}
         >
-          {saving ? "Saving..." : "Create Lead"}
+          {loading ? "Creating..." : "Create Lead"}
         </button>
       </div>
     </form>
