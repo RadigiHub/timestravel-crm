@@ -8,33 +8,45 @@ export default function AddLeadForm({
   statuses,
   defaultStatusId,
   onCreated,
+  onCancel,
 }: {
-  statuses: LeadStatus[];
+  statuses?: LeadStatus[];
   defaultStatusId: string;
   onCreated: (lead: any) => void;
+  onCancel?: () => void;
 }) {
-  const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-
   const [fullName, setFullName] = React.useState("");
   const [phone, setPhone] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [source, setSource] = React.useState("web");
+  const [priority, setPriority] = React.useState<"hot" | "warm" | "cold">("warm");
   const [statusId, setStatusId] = React.useState(defaultStatusId);
+  const [assignedTo, setAssignedTo] = React.useState<string>("");
 
-  const [assignedTo, setAssignedTo] = React.useState<string>(""); // "" means unassigned in UI
   const [agents, setAgents] = React.useState<Agent[]>([]);
+  const [loadingAgents, setLoadingAgents] = React.useState(false);
+
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     let mounted = true;
 
     (async () => {
       try {
+        setLoadingAgents(true);
         const res = await listAgentsAction();
         if (!mounted) return;
-        if (res && res.ok) setAgents(res.agents ?? []);
+
+        if (res && (res as any).ok === true) {
+          setAgents((res as { ok: true; agents: Agent[] }).agents ?? []);
+        } else {
+          setAgents([]);
+        }
       } catch {
-        // ignore (agents optional)
+        setAgents([]);
+      } finally {
+        if (mounted) setLoadingAgents(false);
       }
     })();
 
@@ -46,41 +58,48 @@ export default function AddLeadForm({
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setLoading(true);
+
+    const name = fullName.trim();
+    if (!name) {
+      setError("Full name is required.");
+      return;
+    }
+    if (!statusId) {
+      setError("Status is required.");
+      return;
+    }
+
+    const phoneVal = phone.trim();
+    const emailVal = email.trim();
+    const sourceVal = source.trim();
+
+    const payload: CreateLeadInput = {
+      full_name: name,
+      status_id: statusId,
+      priority,
+      source: sourceVal ? sourceVal : "web",
+      phone: phoneVal ? phoneVal : null,
+      email: emailVal ? emailVal : null,
+      assigned_to: assignedTo ? assignedTo : null,
+    };
 
     try {
-      const payload: CreateLeadInput = {
-        full_name: fullName.trim(),
-        phone: phone.trim() ? phone.trim() : null,
-        email: email.trim() ? email.trim() : null,
-        source: source.trim() ? source.trim() : "web",
-        status_id: statusId,
-        assigned_to: assignedTo ? assignedTo : null,
-      };
-
+      setSaving(true);
       const res = await createLeadAction(payload);
-
-      if (!res.ok) {
-        setError(res.error || "Failed to create lead.");
-        setLoading(false);
+      if (!res || (res as any).ok !== true) {
+        setError((res as any)?.error ?? "Failed to create lead.");
         return;
       }
 
-      onCreated(res.lead);
-
-      // reset form
-      setFullName("");
-      setPhone("");
-      setEmail("");
-      setSource("web");
-      setStatusId(defaultStatusId);
-      setAssignedTo("");
+      onCreated((res as any).lead);
     } catch (err: any) {
-      setError(err?.message ?? "Something went wrong.");
+      setError(err?.message ?? "Failed to create lead.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   }
+
+  const hasStatuses = (statuses ?? []).length > 0;
 
   return (
     <form onSubmit={onSubmit} className="space-y-3">
@@ -91,88 +110,113 @@ export default function AddLeadForm({
       ) : null}
 
       <div>
-        <label className="mb-1 block text-xs text-zinc-600">Full Name</label>
+        <label className="mb-1 block text-xs font-medium text-zinc-600">Full Name *</label>
         <input
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
           className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-          placeholder="e.g. Ahmed Khan"
-          required
+          placeholder="e.g., Ali Khan"
         />
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
-          <label className="mb-1 block text-xs text-zinc-600">Phone</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-600">Phone</label>
           <input
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            placeholder="e.g. +92..."
+            placeholder="e.g., +44..."
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-xs text-zinc-600">Email</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-600">Email</label>
           <input
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            placeholder="e.g. name@email.com"
+            placeholder="e.g., name@email.com"
           />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div>
-          <label className="mb-1 block text-xs text-zinc-600">Source</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-600">Source</label>
           <input
             value={source}
             onChange={(e) => setSource(e.target.value)}
             className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            placeholder="web / whatsapp / call..."
+            placeholder="web / meta / whatsapp..."
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-xs text-zinc-600">Status</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-600">Priority</label>
           <select
-            value={statusId}
-            onChange={(e) => setStatusId(e.target.value)}
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as any)}
             className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
           >
-            {statuses.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.label}
+            <option value="hot">Hot</option>
+            <option value="warm">Warm</option>
+            <option value="cold">Cold</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-600">Assign To</label>
+          <select
+            value={assignedTo}
+            onChange={(e) => setAssignedTo(e.target.value)}
+            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+          >
+            <option value="">Unassigned</option>
+            {loadingAgents ? <option>Loading…</option> : null}
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.full_name}
               </option>
             ))}
           </select>
         </div>
       </div>
 
-      <div>
-        <label className="mb-1 block text-xs text-zinc-600">Assign To (optional)</label>
-        <select
-          value={assignedTo}
-          onChange={(e) => setAssignedTo(e.target.value)}
-          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-        >
-          <option value="">Unassigned</option>
-          {agents.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.full_name} ({a.role})
-            </option>
-          ))}
-        </select>
-      </div>
+      {hasStatuses ? (
+        <div>
+          <label className="mb-1 block text-xs font-medium text-zinc-600">Status</label>
+          <select
+            value={statusId}
+            onChange={(e) => setStatusId(e.target.value)}
+            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+          >
+            {(statuses ?? []).map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
 
-      <button
-        type="submit"
-        disabled={loading}
-        className="w-full rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
-      >
-        {loading ? "Creating..." : "Create Lead"}
-      </button>
+      <div className="flex items-center justify-end gap-2 pt-2">
+        <button
+          type="button"
+          onClick={() => onCancel?.()}
+          className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
+        >
+          Cancel
+        </button>
+
+        <button
+          disabled={saving}
+          type="submit"
+          className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
+        >
+          {saving ? "Saving..." : "Create Lead"}
+        </button>
+      </div>
     </form>
   );
 }
