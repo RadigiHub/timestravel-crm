@@ -14,8 +14,6 @@ export type Agent = {
   id: string;
   full_name: string;
   role: "admin" | "agent" | string;
-  // optional (future-proof)
-  email?: string | null;
 };
 
 export type Lead = {
@@ -132,7 +130,6 @@ export async function createLeadAction(input: CreateLeadInput): Promise<CreateLe
       if (k in input) payload[k] = (input as any)[k] ?? null;
     }
 
-    // next position in that status
     const { data: maxPosRow, error: maxErr } = await supabase
       .from("leads")
       .select("position")
@@ -194,16 +191,17 @@ export async function moveLeadAction(input: MoveLeadInput): Promise<{ ok: boolea
   }
 }
 
-export async function listAgentsAction(): Promise<{ ok: true; agents: Agent[] } | { ok: false; error: string }> {
+export async function listAgentsAction(): Promise<
+  { ok: true; agents: Agent[] } | { ok: false; error: string }
+> {
   try {
     const supabase = await supabaseServer();
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) return { ok: false, error: "Unauthorized" };
 
-    // NOTE: aap ke project me agents/admins profiles table me hain
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, role, email")
+      .select("id, full_name, role")
       .in("role", ["agent", "admin"])
       .order("full_name", { ascending: true });
 
