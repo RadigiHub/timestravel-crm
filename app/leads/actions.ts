@@ -1,143 +1,126 @@
 "use server";
 
 import { supabaseServer } from "@/lib/supabase/server";
-import { listAgentsAction } from "@/app/leads/actions";
 
-type StatusName = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
+export type LeadStatus = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
 
-function startOfTodayISO() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
+export type Lead = {
+  id: string;
+  name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  notes?: string | null;
+  status: LeadStatus;
+  assigned_to?: string | null;
+  created_at?: string;
+};
+
+export type Agent = {
+  id: string;
+  name: string;
+};
+
+function normalizeStatus(input: any): LeadStatus {
+  const s = String(input || "New").toLowerCase();
+  if (s === "contacted") return "Contacted";
+  if (s === "follow-up" || s === "followup" || s === "follow_up") return "Follow-Up";
+  if (s === "booked") return "Booked";
+  if (s === "lost") return "Lost";
+  return "New";
 }
 
-function normalizeStatusName(name: string): StatusName | null {
-  const n = (name || "").trim().toLowerCase();
-  if (n === "new") return "New";
-  if (n === "contacted") return "Contacted";
-  if (n === "follow-up" || n === "follow up" || n === "followup") return "Follow-Up";
-  if (n === "booked") return "Booked";
-  if (n === "lost") return "Lost";
-  return null;
+/**
+ * NOTE: table names assumed:
+ * - leads
+ * - agents
+ * Agar tumhare Supabase me names different hain, yahan update kar lena.
+ */
+
+export async function listAgentsAction(): Promise<Agent[]> {
+  const supabase = await supabaseServer();
+
+  const { data, error } = await supabase
+    .from("agents")
+    .select("id,name")
+    .order("name", { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((a: any) => ({
+    id: String(a.id),
+    name: String(a.name ?? "Agent"),
+  }));
 }
 
-export async function getDashboardDataAction() {
-  try {
-    // IMPORTANT: your supabase helper returns a Promise, so await it
-    const supabase = await supabaseServer();
+export async function createLeadAction(payload: {
+  name?: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+  status?: LeadStatus;
+  assigned_to?: string | null;
+}): Promise<{ ok: true; lead: Lead }> {
+  const supabase = await supabaseServer();
 
-    // 1) statuses
-    const { data: statuses, error: stErr } = await supabase
-      .from("lead_statuses")
-      .select("id,name");
+  const insertRow: any = {
+    name: payload.name ?? null,
+    phone: payload.phone ?? null,
+    email: payload.email ?? null,
+    notes: payload.notes ?? null,
+    status: payload.status ?? "New",
+    assigned_to: payload.assigned_to ?? null,
+  };
 
-    if (stErr) throw stErr;
+  const { data, error } = await supabase
+    .from("leads")
+    .insert(insertRow)
+    .select("*")
+    .single();
 
-    // Map status_id -> normalized name
-    const statusIdToName: Record<string, StatusName> = {};
-    for (const s of statuses ?? []) {
-      const normalized = normalizeStatusName((s as any).name);
-      if (normalized) statusIdToName[(s as any).id] = normalized;
-    }
+  if (error) throw new Error(error.message);
 
-    // 2) leads (minimal fields)
-    const { data: leads, error: lErr } = await supabase
-      .from("leads")
-      .select("id,status_id,assigned_to,created_at,follow_up_date");
+  const lead: Lead = {
+    id: String(data.id),
+    name: data.name,
+    phone: data.phone,
+    email: data.email,
+    notes: data.notes,
+    status: normalizeStatus(data.status),
+    assigned_to: data.assigned_to ?? null,
+    created_at: data.created_at,
+  };
 
-    if (lErr) throw lErr;
+  return { ok: true, lead };
+}
 
-    const all = leads ?? [];
+export async function moveLeadAction(args: {
+  leadId: string;
+  toStatus: LeadStatus;
+}): Promise<{ ok: true }> {
+  const supabase = await supabaseServer();
 
-    // 3) compute KPIs
-    const todayISO = startOfTodayISO();
-    const todayDateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const { error } = await supabase
+    .from("leads")
+    .update({ status: args.toStatus })
+    .eq("id", args.leadId);
 
-    const statusCounts: Record<StatusName, number> = {
-      "New": 0,
-      "Contacted": 0,
-      "Follow-Up": 0,
-      "Booked": 0,
-      "Lost": 0,
-    };
+  if (error) throw new Error(error.message);
 
-    let totalLeads = 0;
-    let todayNew = 0;
-    let followupsDue = 0;
+  return { ok: true };
+}
 
-    // Agent stats
-    const agentStats: Record<string, { total: number; booked: number; newToday: number }> = {};
+export async function assignLeadAction(args: {
+  leadId: string;
+  agentId: string | null;
+}): Promise<{ ok: true }> {
+  const supabase = await supabaseServer();
 
-    for (const l of all) {
-      totalLeads += 1;
+  const { error } = await supabase
+    .from("leads")
+    .update({ assigned_to: args.agentId })
+    .eq("id", args.leadId);
 
-      const sid = (l as any).status_id as string | null;
-      const statusName = sid ? statusIdToName[sid] : null;
-      if (statusName) statusCounts[statusName] += 1;
+  if (error) throw new Error(error.message);
 
-      const createdAt = (l as any).created_at as string | null;
-      if (createdAt && createdAt >= todayISO) todayNew += 1;
-
-      const follow = (l as any).follow_up_date as string | null; // usually YYYY-MM-DD
-      // Follow-up due: follow_up_date <= today AND not booked/lost
-      if (follow && follow <= todayDateStr && statusName !== "Booked" && statusName !== "Lost") {
-        followupsDue += 1;
-      }
-
-      const agentId = (l as any).assigned_to as string | null;
-      if (agentId) {
-        if (!agentStats[agentId]) agentStats[agentId] = { total: 0, booked: 0, newToday: 0 };
-        agentStats[agentId].total += 1;
-        if (statusName === "Booked") agentStats[agentId].booked += 1;
-        if (createdAt && createdAt >= todayISO) agentStats[agentId].newToday += 1;
-      }
-    }
-
-    // 4) fetch agents list (reuse your existing action)
-    const agentsRes: any = await listAgentsAction();
-    let agents: any[] = [];
-    if (Array.isArray(agentsRes)) agents = agentsRes;
-    else if (agentsRes?.ok && Array.isArray(agentsRes.agents)) agents = agentsRes.agents;
-
-    const agentsById: Record<string, { id: string; name?: string | null; email?: string | null; full_name?: string | null }> = {};
-    for (const a of agents) {
-      const id = (a as any).id;
-      if (!id) continue;
-      agentsById[id] = {
-        id,
-        name: (a as any).name ?? null,
-        full_name: (a as any).full_name ?? null,
-        email: (a as any).email ?? null,
-      };
-    }
-
-    // Build leaderboard
-    const leaderboard = Object.entries(agentStats)
-      .map(([agentId, st]) => {
-        const a = agentsById[agentId];
-        const label =
-          (a?.full_name || a?.name || a?.email || agentId?.slice(0, 8) + "…") ?? agentId;
-        return {
-          agentId,
-          label,
-          total: st.total,
-          booked: st.booked,
-          newToday: st.newToday,
-        };
-      })
-      .sort((x, y) => (y.booked - x.booked) || (y.total - x.total));
-
-    return {
-      ok: true as const,
-      data: {
-        totalLeads,
-        todayNew,
-        followupsDue,
-        statusCounts,
-        leaderboard,
-      },
-    };
-  } catch (e: any) {
-    return { ok: false as const, error: e?.message || "Dashboard fetch failed" };
-  }
+  return { ok: true };
 }
