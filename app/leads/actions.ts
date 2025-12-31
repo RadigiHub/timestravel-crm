@@ -1,241 +1,143 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase/server";
+import { listAgentsAction } from "@/app/leads/actions";
 
-export type LeadStatus = {
-  id: string;
-  label: string;
-  position: number;
-  color?: string | null;
-};
+type StatusName = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
 
-export type Agent = {
-  id: string;
-  full_name: string;
-  role: "admin" | "agent" | string;
-};
+function startOfTodayISO() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
 
-export type Lead = {
-  id: string;
-  full_name: string | null;
-  phone: string | null;
-  email: string | null;
-  source: string | null;
-  status_id: string;
-  position: number;
-  priority: "hot" | "warm" | "cold" | null;
+function normalizeStatusName(name: string): StatusName | null {
+  const n = (name || "").trim().toLowerCase();
+  if (n === "new") return "New";
+  if (n === "contacted") return "Contacted";
+  if (n === "follow-up" || n === "follow up" || n === "followup") return "Follow-Up";
+  if (n === "booked") return "Booked";
+  if (n === "lost") return "Lost";
+  return null;
+}
 
-  assigned_to: string | null;
-  created_by?: string | null;
-  last_activity_at?: string | null;
-
-  created_at: string;
-  updated_at: string;
-
-  details?: any;
-
-  trip_type?: "oneway" | "return" | "multicity" | string | null;
-  departure?: string | null;
-  destination?: string | null;
-  depart_date?: string | null;
-  return_date?: string | null;
-
-  adults?: number | null;
-  children?: number | null;
-  infants?: number | null;
-
-  cabin_class?: "economy" | "premium" | "business" | "first" | string | null;
-  budget?: string | null;
-  preferred_airline?: string | null;
-  whatsapp?: string | null;
-  notes?: string | null;
-  follow_up_date?: string | null;
-  whatsapp_text?: string | null;
-};
-
-export type CreateLeadInput = {
-  full_name: string;
-  phone?: string | null;
-  email?: string | null;
-  source?: string | null;
-  priority?: "hot" | "warm" | "cold";
-  status_id: string;
-
-  assigned_to?: string | null;
-
-  trip_type?: "oneway" | "return" | "multicity" | string | null;
-  cabin_class?: "economy" | "premium" | "business" | "first" | string | null;
-
-  departure?: string | null;
-  destination?: string | null;
-  depart_date?: string | null;
-  return_date?: string | null;
-
-  adults?: number | null;
-  children?: number | null;
-  infants?: number | null;
-
-  budget?: string | null;
-  preferred_airline?: string | null;
-  whatsapp?: string | null;
-  notes?: string | null;
-  follow_up_date?: string | null;
-  whatsapp_text?: string | null;
-};
-
-export type CreateLeadResult =
-  | { ok: true; lead: Lead }
-  | { ok: false; error: string };
-
-export async function createLeadAction(input: CreateLeadInput): Promise<CreateLeadResult> {
+export async function getDashboardDataAction() {
   try {
+    // IMPORTANT: your supabase helper returns a Promise, so await it
     const supabase = await supabaseServer();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return { ok: false, error: "Unauthorized" };
 
-    const full_name = (input.full_name ?? "").trim();
-    if (!full_name) return { ok: false, error: "Full name is required." };
-    if (!input.status_id) return { ok: false, error: "Status is required." };
+    // 1) statuses
+    const { data: statuses, error: stErr } = await supabase
+      .from("lead_statuses")
+      .select("id,name");
 
-    const payload: Record<string, any> = {
-      full_name,
-      phone: input.phone ?? null,
-      email: input.email ?? null,
-      source: input.source ?? null,
-      priority: input.priority ?? "warm",
-      status_id: input.status_id,
-      assigned_to: input.assigned_to ?? null,
+    if (stErr) throw stErr;
+
+    // Map status_id -> normalized name
+    const statusIdToName: Record<string, StatusName> = {};
+    for (const s of statuses ?? []) {
+      const normalized = normalizeStatusName((s as any).name);
+      if (normalized) statusIdToName[(s as any).id] = normalized;
+    }
+
+    // 2) leads (minimal fields)
+    const { data: leads, error: lErr } = await supabase
+      .from("leads")
+      .select("id,status_id,assigned_to,created_at,follow_up_date");
+
+    if (lErr) throw lErr;
+
+    const all = leads ?? [];
+
+    // 3) compute KPIs
+    const todayISO = startOfTodayISO();
+    const todayDateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+    const statusCounts: Record<StatusName, number> = {
+      "New": 0,
+      "Contacted": 0,
+      "Follow-Up": 0,
+      "Booked": 0,
+      "Lost": 0,
     };
 
-    const optionalKeys: (keyof CreateLeadInput)[] = [
-      "trip_type",
-      "cabin_class",
-      "departure",
-      "destination",
-      "depart_date",
-      "return_date",
-      "adults",
-      "children",
-      "infants",
-      "budget",
-      "preferred_airline",
-      "whatsapp",
-      "notes",
-      "follow_up_date",
-      "whatsapp_text",
-    ];
+    let totalLeads = 0;
+    let todayNew = 0;
+    let followupsDue = 0;
 
-    for (const k of optionalKeys) {
-      if (k in input) payload[k] = (input as any)[k] ?? null;
+    // Agent stats
+    const agentStats: Record<string, { total: number; booked: number; newToday: number }> = {};
+
+    for (const l of all) {
+      totalLeads += 1;
+
+      const sid = (l as any).status_id as string | null;
+      const statusName = sid ? statusIdToName[sid] : null;
+      if (statusName) statusCounts[statusName] += 1;
+
+      const createdAt = (l as any).created_at as string | null;
+      if (createdAt && createdAt >= todayISO) todayNew += 1;
+
+      const follow = (l as any).follow_up_date as string | null; // usually YYYY-MM-DD
+      // Follow-up due: follow_up_date <= today AND not booked/lost
+      if (follow && follow <= todayDateStr && statusName !== "Booked" && statusName !== "Lost") {
+        followupsDue += 1;
+      }
+
+      const agentId = (l as any).assigned_to as string | null;
+      if (agentId) {
+        if (!agentStats[agentId]) agentStats[agentId] = { total: 0, booked: 0, newToday: 0 };
+        agentStats[agentId].total += 1;
+        if (statusName === "Booked") agentStats[agentId].booked += 1;
+        if (createdAt && createdAt >= todayISO) agentStats[agentId].newToday += 1;
+      }
     }
 
-    const { data: maxPosRow, error: maxErr } = await supabase
-      .from("leads")
-      .select("position")
-      .eq("status_id", input.status_id)
-      .order("position", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // 4) fetch agents list (reuse your existing action)
+    const agentsRes: any = await listAgentsAction();
+    let agents: any[] = [];
+    if (Array.isArray(agentsRes)) agents = agentsRes;
+    else if (agentsRes?.ok && Array.isArray(agentsRes.agents)) agents = agentsRes.agents;
 
-    if (maxErr) return { ok: false, error: maxErr.message };
-
-    const nextPos = typeof maxPosRow?.position === "number" ? maxPosRow.position + 1 : 0;
-    payload.position = nextPos;
-
-    const { data, error } = await supabase.from("leads").insert(payload).select("*").single();
-    if (error) return { ok: false, error: error.message };
-
-    revalidatePath("/leads");
-    return { ok: true, lead: data as Lead };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Unknown error" };
-  }
-}
-
-export type MoveLeadInput = {
-  fromStatusId: string;
-  toStatusId: string;
-  fromOrderIds: string[];
-  toOrderIds: string[];
-};
-
-export async function moveLeadAction(input: MoveLeadInput): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const supabase = await supabaseServer();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return { ok: false, error: "Unauthorized" };
-
-    for (let i = 0; i < input.fromOrderIds.length; i++) {
-      const id = input.fromOrderIds[i];
-      const { error } = await supabase
-        .from("leads")
-        .update({ status_id: input.fromStatusId, position: i })
-        .eq("id", id);
-      if (error) return { ok: false, error: error.message };
+    const agentsById: Record<string, { id: string; name?: string | null; email?: string | null; full_name?: string | null }> = {};
+    for (const a of agents) {
+      const id = (a as any).id;
+      if (!id) continue;
+      agentsById[id] = {
+        id,
+        name: (a as any).name ?? null,
+        full_name: (a as any).full_name ?? null,
+        email: (a as any).email ?? null,
+      };
     }
 
-    for (let i = 0; i < input.toOrderIds.length; i++) {
-      const id = input.toOrderIds[i];
-      const { error } = await supabase
-        .from("leads")
-        .update({ status_id: input.toStatusId, position: i })
-        .eq("id", id);
-      if (error) return { ok: false, error: error.message };
-    }
-
-    revalidatePath("/leads");
-    return { ok: true };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Unknown error" };
-  }
-}
-
-export async function listAgentsAction(): Promise<
-  { ok: true; agents: Agent[] } | { ok: false; error: string }
-> {
-  try {
-    const supabase = await supabaseServer();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return { ok: false, error: "Unauthorized" };
-
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, full_name, role")
-      .in("role", ["agent", "admin"])
-      .order("full_name", { ascending: true });
-
-    if (error) return { ok: false, error: error.message };
-    return { ok: true, agents: (data ?? []) as Agent[] };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Unknown error" };
-  }
-}
-
-export async function assignLeadAction(args: {
-  lead_id: string;
-  assigned_to: string | null;
-}): Promise<{ ok: true; lead: Lead } | { ok: false; error: string }> {
-  try {
-    const supabase = await supabaseServer();
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth?.user) return { ok: false, error: "Unauthorized" };
-
-    const { data, error } = await supabase
-      .from("leads")
-      .update({
-        assigned_to: args.assigned_to,
-        last_activity_at: new Date().toISOString(),
+    // Build leaderboard
+    const leaderboard = Object.entries(agentStats)
+      .map(([agentId, st]) => {
+        const a = agentsById[agentId];
+        const label =
+          (a?.full_name || a?.name || a?.email || agentId?.slice(0, 8) + "…") ?? agentId;
+        return {
+          agentId,
+          label,
+          total: st.total,
+          booked: st.booked,
+          newToday: st.newToday,
+        };
       })
-      .eq("id", args.lead_id)
-      .select("*")
-      .single();
+      .sort((x, y) => (y.booked - x.booked) || (y.total - x.total));
 
-    if (error) return { ok: false, error: error.message };
-
-    revalidatePath("/leads");
-    return { ok: true, lead: data as Lead };
+    return {
+      ok: true as const,
+      data: {
+        totalLeads,
+        todayNew,
+        followupsDue,
+        statusCounts,
+        leaderboard,
+      },
+    };
   } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Unknown error" };
+    return { ok: false as const, error: e?.message || "Dashboard fetch failed" };
   }
 }
