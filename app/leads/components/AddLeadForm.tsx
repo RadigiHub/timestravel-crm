@@ -1,65 +1,74 @@
 "use client";
 
-import * as React from "react";
-import { createLeadAction, listAgentsAction } from "../actions";
-import type { Agent, LeadStatus } from "../actions";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { createLeadAction, getAgentsAction } from "../actions";
 
-type Props = {
-  onCreated?: () => void;
-  onClose?: () => void;
+type LeadStatus = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
+
+type Agent = {
+  id: string;
+  name?: string | null;
+  email?: string | null;
 };
 
-const STATUSES: LeadStatus[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
-
-function clean(v: string) {
-  const t = (v ?? "").trim();
-  return t.length ? t : undefined;
+function clean(v?: string): string {
+  return (v ?? "").trim();
 }
 
-function buildNotes(source?: string, notes?: string) {
+function buildNotes(source?: string, notes?: string): string | undefined {
   const s = clean(source);
   const n = clean(notes);
+
   if (!s && !n) return undefined;
   if (s && n) return `Source: ${s}\n\n${n}`;
   if (s) return `Source: ${s}`;
   return n;
 }
 
-export default function AddLeadForm({ onCreated, onClose }: Props) {
-  const [loading, setLoading] = React.useState(false);
-  const [agentsLoading, setAgentsLoading] = React.useState(true);
-  const [agents, setAgents] = React.useState<Agent[]>([]);
-  const [error, setError] = React.useState<string | null>(null);
-  const [success, setSuccess] = React.useState<string | null>(null);
+export default function AddLeadForm() {
+  const [isPending, startTransition] = useTransition();
 
-  // Detailed fields
-  const [fullName, setFullName] = React.useState("");
-  const [phone, setPhone] = React.useState("");
-  const [email, setEmail] = React.useState("");
-  const [source, setSource] = React.useState(""); // stored in notes as "Source: ..."
-  const [notes, setNotes] = React.useState("");
-  const [status, setStatus] = React.useState<LeadStatus>("New");
-  const [assignedTo, setAssignedTo] = React.useState<string>(""); // agent id
+  // form state (detail wala)
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [source, setSource] = useState("");
+  const [notes, setNotes] = useState("");
+  const [status, setStatus] = useState<LeadStatus>("New");
+  const [assignedTo, setAssignedTo] = useState<string>("");
 
-  React.useEffect(() => {
+  // ui state
+  const [err, setErr] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+
+  // agents
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const hasAgents = agents.length > 0;
+
+  useEffect(() => {
     let mounted = true;
 
     (async () => {
       try {
-        setAgentsLoading(true);
+        const res: any = await getAgentsAction();
 
-        // ✅ listAgentsAction returns Agent[] (NOT { ok, data })
-        const res = await listAgentsAction();
+        // handle both shapes:
+        // 1) Agent[]
+        // 2) { ok: true, data: Agent[] }
+        // 3) fallback -> []
+        let list: Agent[] = [];
 
-        if (!mounted) return;
+        if (Array.isArray(res)) {
+          list = res;
+        } else if (res && typeof res === "object" && "ok" in res) {
+          if (res.ok && Array.isArray(res.data)) list = res.data;
+        } else if (res && typeof res === "object" && Array.isArray(res.data)) {
+          list = res.data;
+        }
 
-        // res might be Agent[] or something else — keep it safe
-        if (Array.isArray(res)) setAgents(res);
-        else setAgents([]);
+        if (mounted) setAgents(list);
       } catch {
         if (mounted) setAgents([]);
-      } finally {
-        if (mounted) setAgentsLoading(false);
       }
     })();
 
@@ -68,193 +77,193 @@ export default function AddLeadForm({ onCreated, onClose }: Props) {
     };
   }, []);
 
+  const agentOptions = useMemo(() => {
+    return agents.map((a) => ({
+      id: a.id,
+      label: a.name?.trim() || a.email?.trim() || a.id,
+    }));
+  }, [agents]);
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-    setSuccess(null);
+    setErr(null);
+    setOkMsg(null);
 
-    const name = fullName.trim();
+    const name = clean(fullName);
+    const p = clean(phone);
+    const em = clean(email);
+    const noteValue = buildNotes(source, notes);
+
     if (!name) {
-      setError("Full Name required hai.");
+      setErr("Full name required.");
       return;
     }
 
-    setLoading(true);
-    try {
-      const payload = {
-        // ✅ actions.ts input type uses "name" (not full_name)
-        name,
-        phone: clean(phone),
-        email: clean(email),
-        status,
-        assigned_to: assignedTo ? assignedTo : null,
-        // ✅ keep detail: source + notes in notes field
-        notes: buildNotes(source, notes),
-      };
+    startTransition(async () => {
+      try {
+        // IMPORTANT:
+        // schema/action expects: name, phone, email, notes, status, assigned_to
+        // so full_name -> name
+        const res = await createLeadAction({
+          name,
+          phone: p || undefined,
+          email: em || undefined,
+          notes: noteValue,
+          status,
+          assigned_to: assignedTo ? assignedTo : null,
+        });
 
-      const res: any = await createLeadAction(payload);
-
-      // Support both styles:
-      // 1) { ok: true } / { ok:false, error:"..." }
-      // 2) throws on error
-      if (res && typeof res === "object" && "ok" in res) {
-        if (!res.ok) {
-          setError(res.error || "Lead create failed.");
+        if (!res?.ok) {
+          setErr(res?.error || "Failed to create lead.");
           return;
         }
+
+        setOkMsg("Lead created successfully ✅");
+        setFullName("");
+        setPhone("");
+        setEmail("");
+        setSource("");
+        setNotes("");
+        setStatus("New");
+        setAssignedTo("");
+      } catch (e: any) {
+        setErr(e?.message || "Something went wrong.");
       }
-
-      setSuccess("Lead created ✅");
-
-      // reset form (keep status optional)
-      setFullName("");
-      setPhone("");
-      setEmail("");
-      setSource("");
-      setNotes("");
-      setStatus("New");
-      setAssignedTo("");
-
-      onCreated?.();
-    } catch (err: any) {
-      setError(err?.message || "Lead create failed.");
-    } finally {
-      setLoading(false);
-    }
+    });
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-4">
-      {/* Alerts */}
-      {error ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
+    <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="mb-4">
+        <div className="text-base font-semibold text-zinc-900">Add Lead</div>
+        <div className="text-sm text-zinc-600">
+          Detail wala form — name/phone/email + source + notes + status + optional agent assign.
+        </div>
+      </div>
+
+      {err ? (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {err}
         </div>
       ) : null}
-      {success ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
-          {success}
+
+      {okMsg ? (
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          {okMsg}
         </div>
       ) : null}
 
-      {/* Row 1: Full name */}
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-zinc-600">Full Name *</label>
-        <input
-          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          placeholder="e.g. Ali Raza"
-        />
-      </div>
+      <form onSubmit={onSubmit} className="space-y-4">
+        {/* Row 1 */}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div>
+            <label className="text-xs font-medium text-zinc-600">Full Name *</label>
+            <input
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="e.g. Ali Raza"
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+            />
+          </div>
 
-      {/* Row 2: Phone + Email */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-zinc-600">Phone</label>
-          <input
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="+44 ..."
-          />
-        </div>
+          <div>
+            <label className="text-xs font-medium text-zinc-600">Phone</label>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+44..., 03..., etc"
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+            />
+          </div>
 
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-zinc-600">Email</label>
-          <input
-            type="email"
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="name@email.com"
-          />
-        </div>
-      </div>
-
-      {/* Row 3: Source */}
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-zinc-600">Source</label>
-        <input
-          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-          placeholder="Meta Ads / WhatsApp / Website / Referral..."
-        />
-      </div>
-
-      {/* Row 4: Notes */}
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-zinc-600">Notes</label>
-        <textarea
-          className="min-h-[96px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Extra details: travel dates, budget, destination, etc."
-        />
-      </div>
-
-      {/* Row 5: Status + Assign */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-zinc-600">Status</label>
-          <select
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={status}
-            onChange={(e) => setStatus(e.target.value as LeadStatus)}
-          >
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-zinc-600">Assign Agent</label>
-          <select
-            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            value={assignedTo}
-            onChange={(e) => setAssignedTo(e.target.value)}
-            disabled={agentsLoading}
-          >
-            <option value="">
-              {agentsLoading ? "Loading agents..." : "Unassigned"}
-            </option>
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.label ?? a.name ?? a.id}
-              </option>
-            ))}
-          </select>
-          <div className="text-[11px] text-zinc-500">
-            Agent optional hai — form still works without assigning.
+          <div>
+            <label className="text-xs font-medium text-zinc-600">Email</label>
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@email.com"
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+            />
           </div>
         </div>
-      </div>
 
-      {/* Actions */}
-      <div className="flex items-center justify-end gap-2 pt-2">
-        {onClose ? (
+        {/* Row 2 */}
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div>
+            <label className="text-xs font-medium text-zinc-600">Source</label>
+            <input
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              placeholder="e.g. Facebook, WhatsApp, Website"
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+            />
+            <div className="mt-1 text-[11px] text-zinc-500">
+              Note: Source automatically notes me add ho jayega (schema safe).
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-zinc-600">Status</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value as LeadStatus)}
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+            >
+              <option value="New">New</option>
+              <option value="Contacted">Contacted</option>
+              <option value="Follow-Up">Follow-Up</option>
+              <option value="Booked">Booked</option>
+              <option value="Lost">Lost</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-zinc-600">Assign Agent (optional)</label>
+            <select
+              value={assignedTo}
+              onChange={(e) => setAssignedTo(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+            >
+              <option value="">{hasAgents ? "Unassigned" : "Unassigned (no agents found)"}</option>
+              {agentOptions.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+            <div className="mt-1 text-[11px] text-zinc-500">
+              Agar agents load na hon, form phir bhi work karega.
+            </div>
+          </div>
+        </div>
+
+        {/* Notes */}
+        <div>
+          <label className="text-xs font-medium text-zinc-600">Notes</label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Any details: travel dates, budget, route, preferences, etc."
+            rows={4}
+            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+          />
+        </div>
+
+        {/* Submit */}
+        <div className="flex items-center gap-3">
           <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50"
-            disabled={loading}
+            type="submit"
+            disabled={isPending}
+            className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
           >
-            Cancel
+            {isPending ? "Saving..." : "Create Lead"}
           </button>
-        ) : null}
 
-        <button
-          type="submit"
-          className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-60"
-          disabled={loading}
-        >
-          {loading ? "Creating..." : "Create Lead"}
-        </button>
-      </div>
-    </form>
+          <div className="text-xs text-zinc-500">
+            Tip: “Source” + “Notes” combine ho kar notes field me save hota hai.
+          </div>
+        </div>
+      </form>
+    </div>
   );
 }
