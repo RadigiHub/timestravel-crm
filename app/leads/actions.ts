@@ -1,124 +1,80 @@
 "use server";
 
-import { supabaseServer } from "@/lib/supabase/server";
-
-/* ================= TYPES ================= */
+import { revalidatePath } from "next/cache";
+// IMPORTANT: yahan apna existing supabase server client import rakho.
+// Tumhare project me jo helper already hai, wohi path use karo.
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type LeadStatus = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
 
-export type Lead = {
-  id: string;
-  name?: string | null;
-  phone?: string | null;
-  email?: string | null;
-  notes?: string | null;
-  status: LeadStatus;
-  assigned_to?: string | null;
-  created_at?: string;
-};
-
 export type Agent = {
   id: string;
-  name: string;
+  name?: string | null;
+  full_name?: string | null;
+  email?: string | null;
 };
 
-/* ================= HELPERS ================= */
+type Ok<T> = { ok: true; data: T };
+type Fail = { ok: false; error: string };
 
-function normalizeStatus(v: any): LeadStatus {
-  const s = String(v || "New").toLowerCase();
-  if (s === "contacted") return "Contacted";
-  if (s === "follow-up" || s === "followup") return "Follow-Up";
-  if (s === "booked") return "Booked";
-  if (s === "lost") return "Lost";
-  return "New";
+export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
+  try {
+    const supabase = await createSupabaseServerClient();
+
+    // Agents table/fields agar different hain to yahan adjust karna hoga
+    const { data, error } = await supabase
+      .from("agents")
+      .select("id,name,full_name,email")
+      .order("created_at", { ascending: true });
+
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: (data ?? []) as Agent[] };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Unknown error" };
+  }
 }
 
-/* ================= ACTIONS ================= */
-
-export async function listAgentsAction(): Promise<Agent[]> {
-  const supabase = await supabaseServer();
-
-  const { data, error } = await supabase
-    .from("agents")
-    .select("id,name")
-    .order("name");
-
-  if (error) throw new Error(error.message);
-
-  return (data ?? []).map((a: any) => ({
-    id: String(a.id),
-    name: String(a.name ?? "Agent"),
-  }));
+// ✅ Alias so AddLeadForm ka import kabhi na toote
+export async function getAgentsAction() {
+  return listAgentsAction();
 }
 
-export async function createLeadAction(payload: {
+export type CreateLeadInput = {
+  // DB type ke mutabiq: "name" field use ho raha hai (NOT full_name)
   name?: string;
   phone?: string;
   email?: string;
   notes?: string;
   status?: LeadStatus;
   assigned_to?: string | null;
-}) {
-  const supabase = await supabaseServer();
+};
 
-  const { data, error } = await supabase
-    .from("leads")
-    .insert({
-      name: payload.name ?? null,
-      phone: payload.phone ?? null,
-      email: payload.email ?? null,
-      notes: payload.notes ?? null,
-      status: payload.status ?? "New",
-      assigned_to: payload.assigned_to ?? null,
-    })
-    .select()
-    .single();
+export async function createLeadAction(input: CreateLeadInput): Promise<Ok<{ id: string }> | Fail> {
+  try {
+    const supabase = await createSupabaseServerClient();
 
-  if (error) throw new Error(error.message);
+    const payload = {
+      name: input.name?.trim() || null,
+      phone: input.phone?.trim() || null,
+      email: input.email?.trim() || null,
+      notes: input.notes?.trim() || null,
+      status: input.status ?? "New",
+      assigned_to: input.assigned_to ?? null,
+    };
 
-  return {
-    ok: true,
-    lead: {
-      id: String(data.id),
-      name: data.name,
-      phone: data.phone,
-      email: data.email,
-      notes: data.notes,
-      status: normalizeStatus(data.status),
-      assigned_to: data.assigned_to,
-      created_at: data.created_at,
-    } as Lead,
-  };
-}
+    const { data, error } = await supabase
+      .from("leads")
+      .insert(payload)
+      .select("id")
+      .single();
 
-export async function moveLeadAction(args: {
-  leadId: string;
-  toStatus: LeadStatus;
-}) {
-  const supabase = await supabaseServer();
+    if (error) return { ok: false, error: error.message };
 
-  const { error } = await supabase
-    .from("leads")
-    .update({ status: args.toStatus })
-    .eq("id", args.leadId);
+    revalidatePath("/leads");
+    revalidatePath("/dashboard");
 
-  if (error) throw new Error(error.message);
-
-  return { ok: true };
-}
-
-export async function assignLeadAction(args: {
-  leadId: string;
-  agentId: string | null;
-}) {
-  const supabase = await supabaseServer();
-
-  const { error } = await supabase
-    .from("leads")
-    .update({ assigned_to: args.agentId })
-    .eq("id", args.leadId);
-
-  if (error) throw new Error(error.message);
-
-  return { ok: true };
+    return { ok: true, data: { id: data.id as string } };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Unknown error" };
+  }
 }
