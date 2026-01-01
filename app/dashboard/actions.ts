@@ -2,44 +2,136 @@
 
 import { supabaseServer } from "@/lib/supabase/server";
 
+export type StatusName = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
+
 export type DashboardData = {
   totalLeads: number;
-  newLeads: number;
-  contacted: number;
-  followUp: number;
-  booked: number;
-  lost: number;
+  todayNew: number;
+  followupsDue: number;
+  statusCounts: Record<StatusName, number>;
+  leaderboard: Array<{
+    agentId: string;
+    label: string;
+    total: number;
+    booked: number;
+    newToday: number;
+  }>;
 };
 
-export async function getDashboardDataAction(): Promise<DashboardData> {
-  const supabase = await supabaseServer();
+export type DashboardResult =
+  | { ok: true; data: DashboardData }
+  | { ok: false; error: string };
 
-  // NOTE: table name "leads" assumed. Agar tumhari table ka naam different ho, yahan update karna.
-  const { data, error } = await supabase
-    .from("leads")
-    .select("status", { count: "exact", head: false });
+function startOfTodayISO() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
 
-  if (error) throw new Error(error.message);
+export async function getDashboardDataAction(): Promise<DashboardResult> {
+  try {
+    const supabase = supabaseServer();
 
-  const counts = {
-    totalLeads: 0,
-    newLeads: 0,
-    contacted: 0,
-    followUp: 0,
-    booked: 0,
-    lost: 0,
-  };
+    // --- Leads snapshot (small/medium CRM ke liye safe)
+    const { data: leads, error: leadsErr } = await supabase
+      .from("leads")
+      .select("id,status,created_at,follow_up_at,agent_id");
 
-  (data ?? []).forEach((row: any) => {
-    counts.totalLeads += 1;
+    if (leadsErr) return { ok: false, error: leadsErr.message };
 
-    const s = String(row.status || "").toLowerCase();
-    if (s === "new") counts.newLeads += 1;
-    else if (s === "contacted") counts.contacted += 1;
-    else if (s === "follow-up" || s === "followup" || s === "follow_up") counts.followUp += 1;
-    else if (s === "booked") counts.booked += 1;
-    else if (s === "lost") counts.lost += 1;
-  });
+    // --- Agents
+    const { data: agents, error: agentsErr } = await supabase
+      .from("agents")
+      .select("id,name")
+      .order("name", { ascending: true });
 
-  return counts;
+    if (agentsErr) return { ok: false, error: agentsErr.message };
+
+    const todayISO = startOfTodayISO();
+    const now = new Date();
+
+    const statusCounts: Record<StatusName, number> = {
+      "New": 0,
+      "Contacted": 0,
+      "Follow-Up": 0,
+      "Booked": 0,
+      "Lost": 0,
+    };
+
+    let todayNew = 0;
+    let followupsDue = 0;
+
+    for (const l of leads ?? []) {
+      const s = (l.status ?? "New") as StatusName;
+      if (statusCounts[s] === undefined) {
+        // unknown status => ignore count bucket (or map to New)
+      } else {
+        statusCounts[s] += 1;
+      }
+
+      if (l.created_at && new Date(l.created_at).toISOString() >= todayISO) {
+        todayNew += 1;
+      }
+
+      // follow_up_at due today / overdue, and not already closed
+      if (l.follow_up_at) {
+        const fu = new Date(l.follow_up_at);
+        if (fu <= now && s !== "Booked" && s !== "Lost") {
+          followupsDue += 1;
+        }
+      }
+    }
+
+    const leadsByAgent = new Map<
+      string,
+      { total: number; booked: number; newToday: number }
+    >();
+
+    for (const l of leads ?? []) {
+      const agentId = l.agent_id;
+      if (!agentId) continue;
+
+      const s = (l.status ?? "New") as StatusName;
+      const row =
+        leadsByAgent.get(agentId) ?? { total: 0, booked: 0, newToday: 0 };
+
+      row.total += 1;
+      if (s === "Booked") row.booked += 1;
+
+      if (l.created_at && new Date(l.created_at).toISOString() >= todayISO) {
+        row.newToday += 1;
+      }
+
+      leadsByAgent.set(agentId, row);
+    }
+
+    const leaderboard = (agents ?? []).map((a: any) => {
+      const stats = leadsByAgent.get(a.id) ?? { total: 0, booked: 0, newToday: 0 };
+      return {
+        agentId: a.id,
+        label: a.name ?? "Agent",
+        total: stats.total,
+        booked: stats.booked,
+        newToday: stats.newToday,
+      };
+    });
+
+    // Sort: booked desc, then total desc
+    leaderboard.sort((x, y) => {
+      if (y.booked !== x.booked) return y.booked - x.booked;
+      return y.total - x.total;
+    });
+
+    const data: DashboardData = {
+      totalLeads: (leads ?? []).length,
+      todayNew,
+      followupsDue,
+      statusCounts,
+      leaderboard,
+    };
+
+    return { ok: true, data };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Unknown error" };
+  }
 }
