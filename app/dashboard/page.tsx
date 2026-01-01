@@ -20,45 +20,21 @@ function Card({
   );
 }
 
-type StatusName = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
-
-type LeaderboardRow = {
-  agentId: string;
-  label: string;
-  total: number;
-  booked: number;
-  newToday: number;
-};
-
-type DashboardData = {
-  totalLeads: number;
-  todayNew: number;
-  followupsDue: number;
-  statusCounts: Record<StatusName, number>;
-  leaderboard: LeaderboardRow[];
-};
-
 export default async function DashboardPage() {
-  let data: DashboardData | null = null;
-  let errorMsg: string | null = null;
+  const res = await getDashboardDataAction();
 
-  try {
-    data = (await getDashboardDataAction()) as DashboardData;
-  } catch (e: any) {
-    errorMsg = e?.message || "Unknown error";
-  }
-
-  if (!data) {
+  if (!res.ok) {
     return (
       <div className="p-6">
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Dashboard load failed: {errorMsg ?? "No data returned"}
+          Dashboard load failed: {res.error}
         </div>
       </div>
     );
   }
 
-  const { totalLeads, todayNew, followupsDue, statusCounts, leaderboard } = data;
+  const { totalLeads, todayNew, followupsDue, statusCounts, leaderboard } =
+    res.data;
 
   return (
     <div className="space-y-6 p-6">
@@ -118,7 +94,7 @@ export default async function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {leaderboard?.length ? (
+              {leaderboard.length ? (
                 leaderboard.map((a) => (
                   <tr key={a.agentId} className="border-b border-zinc-100">
                     <td className="py-3 pr-3 font-medium text-zinc-900">{a.label}</td>
@@ -139,8 +115,8 @@ export default async function DashboardPage() {
         </div>
 
         <div className="mt-3 text-xs text-zinc-500">
-          Next: hum yahan per “Conversion %”, “Avg time to Contact”, aur “Follow-up overdue list”
-          bhi add kar sakte hain.
+          Next: hum yahan per “Conversion %”, “Avg time to Contact”, aur “Follow-up
+          overdue list” bhi add kar sakte hain.
         </div>
       </div>
     </div>
