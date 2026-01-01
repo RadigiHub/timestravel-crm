@@ -20,23 +20,48 @@ function Card({
   );
 }
 
-export default async function DashboardPage() {
-  const res = await getDashboardDataAction();
+type StatusName = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
 
-  if (!res.ok) {
+type LeaderboardRow = {
+  agentId: string;
+  label: string;
+  total: number;
+  booked: number;
+  newToday: number;
+};
+
+type DashboardData = {
+  totalLeads: number;
+  todayNew: number;
+  followupsDue: number;
+  statusCounts: Record<StatusName, number>;
+  leaderboard: LeaderboardRow[];
+};
+
+export default async function DashboardPage() {
+  let data: DashboardData | null = null;
+  let errorMsg: string | null = null;
+
+  try {
+    data = (await getDashboardDataAction()) as DashboardData;
+  } catch (e: any) {
+    errorMsg = e?.message || "Unknown error";
+  }
+
+  if (!data) {
     return (
       <div className="p-6">
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Dashboard load failed: {res.error}
+          Dashboard load failed: {errorMsg ?? "No data returned"}
         </div>
       </div>
     );
   }
 
-  const { totalLeads, todayNew, followupsDue, statusCounts, leaderboard } = res.data;
+  const { totalLeads, todayNew, followupsDue, statusCounts, leaderboard } = data;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6">
       {/* Header */}
       <div className="flex flex-col gap-1">
         <div className="text-2xl font-semibold text-zinc-900">Dashboard</div>
@@ -58,7 +83,9 @@ export default async function DashboardPage() {
         <div className="flex items-center justify-between">
           <div>
             <div className="text-base font-semibold text-zinc-900">Pipeline Status</div>
-            <div className="text-sm text-zinc-600">New → Contacted → Follow-Up → Booked/Lost</div>
+            <div className="text-sm text-zinc-600">
+              New → Contacted → Follow-Up → Booked/Lost
+            </div>
           </div>
         </div>
 
@@ -91,7 +118,7 @@ export default async function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {leaderboard.length ? (
+              {leaderboard?.length ? (
                 leaderboard.map((a) => (
                   <tr key={a.agentId} className="border-b border-zinc-100">
                     <td className="py-3 pr-3 font-medium text-zinc-900">{a.label}</td>
@@ -112,7 +139,8 @@ export default async function DashboardPage() {
         </div>
 
         <div className="mt-3 text-xs text-zinc-500">
-          Next: hum yahan per “Conversion %”, “Avg time to Contact”, aur “Follow-up overdue list” bhi add kar sakte hain.
+          Next: hum yahan per “Conversion %”, “Avg time to Contact”, aur “Follow-up overdue list”
+          bhi add kar sakte hain.
         </div>
       </div>
     </div>
