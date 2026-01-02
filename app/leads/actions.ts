@@ -2,50 +2,47 @@
 
 import { supabaseServer } from "@/lib/supabase/server";
 
-/** Types */
 export type LeadStatus = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
-
-export type Ok<T> = { ok: true; data: T };
-export type Fail = { ok: false; error: string };
-
-export type Agent = {
-  id: string;
-  name?: string | null;
-  email?: string | null;
-};
 
 export type Lead = {
   id: string;
-  name?: string | null;
-  phone?: string | null;
-  email?: string | null;
-  notes?: string | null;
-  status?: LeadStatus | null;
-  assigned_to?: string | null;
+  full_name: string | null;
+  phone: string | null;
+  email: string | null;
+  source: string | null;
+  notes: string | null;
+  status: LeadStatus | null;
+  assigned_to: string | null;
   created_at?: string | null;
 };
 
-/** Helpers */
+export type Agent = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  created_at?: string | null;
+};
+
+type Ok<T> = { ok: true; data: T };
+type Fail = { ok: false; error: string };
+
 function clean(v?: string | null) {
   return (v ?? "").trim();
 }
 
-function buildNotes(source?: string, notes?: string) {
-  const s = clean(source);
-  const n = clean(notes);
-  if (!s && !n) return null;
-  if (s && n) return `Source: ${s}\n\n${n}`;
-  if (s) return `Source: ${s}`;
-  return n;
+async function db() {
+  // IMPORTANT: supabaseServer is a FUNCTION in your project
+  // so we must call it to get the client
+  return await supabaseServer();
 }
 
-/** ACTION: list agents (Always returns Ok<Agent[]> with .data) */
+/** Agents list for dropdown */
 export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
   try {
-    const sb = await supabaseServer(); // IMPORTANT: function call
-    const { data, error } = await sb
+    const supabase = await db();
+    const { data, error } = await supabase
       .from("agents")
-      .select("id,name,email")
+      .select("id,full_name,email,created_at")
       .order("created_at", { ascending: true });
 
     if (error) return { ok: false, error: error.message };
@@ -55,36 +52,32 @@ export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
   }
 }
 
-/** Backwards compatibility (agar kahin purana import reh gaya ho) */
-export async function getAgentsAction() {
-  return listAgentsAction();
-}
-
-/** ACTION: create lead (detail form mapping) */
-export async function createLeadAction(input: {
-  name?: string;
+/** Create lead (detail form) */
+export async function createLeadAction(payload: {
+  full_name?: string;
   phone?: string;
   email?: string;
+  source?: string;
   notes?: string;
   status?: LeadStatus;
   assigned_to?: string | null;
-  source?: string;
 }): Promise<Ok<Lead> | Fail> {
   try {
-    const sb = await supabaseServer();
+    const supabase = await db();
 
-    const payload = {
-      name: clean(input.name) || null,
-      phone: clean(input.phone) || null,
-      email: clean(input.email) || null,
-      notes: buildNotes(input.source, input.notes),
-      status: input.status ?? "New",
-      assigned_to: input.assigned_to ?? null,
+    const insertRow = {
+      full_name: clean(payload.full_name) || null,
+      phone: clean(payload.phone) || null,
+      email: clean(payload.email) || null,
+      source: clean(payload.source) || "web",
+      notes: clean(payload.notes) || null,
+      status: payload.status ?? "New",
+      assigned_to: payload.assigned_to ?? null,
     };
 
-    const { data, error } = await sb
+    const { data, error } = await supabase
       .from("leads")
-      .insert(payload)
+      .insert(insertRow)
       .select("*")
       .single();
 
@@ -95,43 +88,39 @@ export async function createLeadAction(input: {
   }
 }
 
-/** ACTION: move lead between statuses */
-export async function moveLeadAction(input: {
+/** Move lead status on board */
+export async function moveLeadAction(args: {
   leadId: string;
   status: LeadStatus;
-}): Promise<Ok<Lead> | Fail> {
+}): Promise<Ok<true> | Fail> {
   try {
-    const sb = await supabaseServer();
-    const { data, error } = await sb
+    const supabase = await db();
+    const { error } = await supabase
       .from("leads")
-      .update({ status: input.status })
-      .eq("id", input.leadId)
-      .select("*")
-      .single();
+      .update({ status: args.status })
+      .eq("id", args.leadId);
 
     if (error) return { ok: false, error: error.message };
-    return { ok: true, data: data as Lead };
+    return { ok: true, data: true };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Failed to move lead" };
   }
 }
 
-/** ACTION: assign lead to agent */
-export async function assignLeadAction(input: {
+/** Assign lead to agent */
+export async function assignLeadAction(args: {
   leadId: string;
   agentId: string | null;
-}): Promise<Ok<Lead> | Fail> {
+}): Promise<Ok<true> | Fail> {
   try {
-    const sb = await supabaseServer();
-    const { data, error } = await sb
+    const supabase = await db();
+    const { error } = await supabase
       .from("leads")
-      .update({ assigned_to: input.agentId })
-      .eq("id", input.leadId)
-      .select("*")
-      .single();
+      .update({ assigned_to: args.agentId })
+      .eq("id", args.leadId);
 
     if (error) return { ok: false, error: error.message };
-    return { ok: true, data: data as Lead };
+    return { ok: true, data: true };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Failed to assign lead" };
   }
