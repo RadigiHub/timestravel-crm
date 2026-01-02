@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useDroppable } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import SortableLeadCard from "./SortableLeadCard";
 import type { Lead, LeadStatus } from "../actions";
 
@@ -31,20 +32,22 @@ export default function Column({
         ref={setNodeRef}
         className="min-h-[120px] rounded-xl border border-zinc-100 bg-zinc-50 p-2"
       >
-        <div className="space-y-2">
-          {leadIds.map((id) => {
-            const lead = leadsById[id];
-            if (!lead) return null;
-            return (
-              <SortableLeadCard
-                key={id}
-                lead={lead}
-                onView={onView}
-                onAction={onAction}
-              />
-            );
-          })}
-        </div>
+        <SortableContext items={leadIds} strategy={verticalListSortingStrategy}>
+          <div className="space-y-2">
+            {leadIds.map((id) => {
+              const lead = leadsById[id];
+              if (!lead) return null;
+              return (
+                <SortableLeadCard
+                  key={id}
+                  lead={lead}
+                  onView={onView}
+                  onAction={onAction}
+                />
+              );
+            })}
+          </div>
+        </SortableContext>
       </div>
     </div>
   );
