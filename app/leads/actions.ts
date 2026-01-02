@@ -3,112 +3,134 @@
 import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase/server";
 
-/* ================= TYPES ================= */
-
-export type LeadStatus =
-  | "New"
-  | "Contacted"
-  | "Follow-Up"
-  | "Booked"
-  | "Lost";
-
-export type Lead = {
-  id: string;
-  name: string | null;
-  phone: string | null;
-  email: string | null;
-  status: LeadStatus;
-  assigned_to: string | null;
-  created_at: string;
-};
+export type LeadStatus = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
 
 export type Agent = {
   id: string;
-  name: string | null;
-  email: string | null;
+  name: string;
+  email?: string | null;
 };
 
-/* ================= HELPERS ================= */
+export type Lead = {
+  id: string;
+  full_name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  source?: string | null;
+  notes?: string | null;
+  status: LeadStatus;
+  agent_id?: string | null;
+  created_at?: string | null;
+  follow_up_at?: string | null;
+};
 
 type Ok<T> = { ok: true; data: T };
 type Fail = { ok: false; error: string };
 
-/* ================= ACTIONS ================= */
+function clean(v?: string | null) {
+  return (v ?? "").trim();
+}
 
-/** Get agents (used by Board + AddLeadForm) */
 export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
-  const { data, error } = await supabaseServer
-    .from("agents")
-    .select("id,name,email")
-    .order("created_at", { ascending: true });
+  try {
+    const supabase = await supabaseServer(); // ✅ IMPORTANT
 
-  if (error) return { ok: false, error: error.message };
-  return { ok: true, data: data ?? [] };
+    const { data, error } = await supabase
+      .from("agents")
+      .select("id,name,email")
+      .order("created_at", { ascending: true });
+
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: (data ?? []) as Agent[] };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "listAgentsAction failed" };
+  }
 }
 
-/** Alias (some components expect this name) */
-export async function getAgentsAction() {
-  return listAgentsAction();
-}
-
-/** Create lead (Add Lead form) */
 export async function createLeadAction(input: {
-  name?: string;
+  full_name: string;
   phone?: string;
   email?: string;
+  source?: string;
   notes?: string;
   status?: LeadStatus;
-  assigned_to?: string | null;
+  assigned_to?: string | null; // (agent id)
+  follow_up_at?: string | null;
 }): Promise<Ok<{ id: string }> | Fail> {
-  const { data, error } = await supabaseServer
-    .from("leads")
-    .insert({
-      name: input.name ?? null,
-      phone: input.phone ?? null,
-      email: input.email ?? null,
-      notes: input.notes ?? null,
-      status: input.status ?? "New",
-      assigned_to: input.assigned_to ?? null,
-    })
-    .select("id")
-    .single();
+  try {
+    const supabase = await supabaseServer(); // ✅ IMPORTANT
 
-  if (error) return { ok: false, error: error.message };
+    const payload = {
+      full_name: clean(input.full_name),
+      phone: clean(input.phone) || null,
+      email: clean(input.email) || null,
+      source: clean(input.source) || null,
+      notes: clean(input.notes) || null,
+      status: (input.status ?? "New") as LeadStatus,
+      agent_id: input.assigned_to ?? null,
+      follow_up_at: input.follow_up_at ?? null,
+    };
 
-  revalidatePath("/leads");
-  revalidatePath("/dashboard");
+    if (!payload.full_name) {
+      return { ok: false, error: "Full name is required." };
+    }
 
-  return { ok: true, data: { id: data.id } };
+    const { data, error } = await supabase
+      .from("leads")
+      .insert(payload)
+      .select("id")
+      .single();
+
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePath("/leads");
+    revalidatePath("/dashboard");
+    return { ok: true, data: { id: data.id as string } };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "createLeadAction failed" };
+  }
 }
 
-/** Move lead between columns (KANBAN DRAG) */
 export async function moveLeadAction(input: {
   leadId: string;
   status: LeadStatus;
 }): Promise<Ok<true> | Fail> {
-  const { error } = await supabaseServer
-    .from("leads")
-    .update({ status: input.status })
-    .eq("id", input.leadId);
+  try {
+    const supabase = await supabaseServer(); // ✅ IMPORTANT
 
-  if (error) return { ok: false, error: error.message };
+    const { error } = await supabase
+      .from("leads")
+      .update({ status: input.status })
+      .eq("id", input.leadId);
 
-  revalidatePath("/leads");
-  return { ok: true, data: true };
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePath("/leads");
+    revalidatePath("/dashboard");
+    return { ok: true, data: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "moveLeadAction failed" };
+  }
 }
 
-/** Assign lead to agent */
 export async function assignLeadAction(input: {
   leadId: string;
   agentId: string | null;
 }): Promise<Ok<true> | Fail> {
-  const { error } = await supabaseServer
-    .from("leads")
-    .update({ assigned_to: input.agentId })
-    .eq("id", input.leadId);
+  try {
+    const supabase = await supabaseServer(); // ✅ IMPORTANT
 
-  if (error) return { ok: false, error: error.message };
+    const { error } = await supabase
+      .from("leads")
+      .update({ agent_id: input.agentId })
+      .eq("id", input.leadId);
 
-  revalidatePath("/leads");
-  return { ok: true, data: true };
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePath("/leads");
+    revalidatePath("/dashboard");
+    return { ok: true, data: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "assignLeadAction failed" };
+  }
 }
