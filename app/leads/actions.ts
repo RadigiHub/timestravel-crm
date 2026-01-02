@@ -4,6 +4,13 @@ import { supabaseServer } from "@/lib/supabase/server";
 
 export type LeadStatus = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
 
+export type LeadStatusRow = {
+  id: string;
+  label: string;
+  position: number | null;
+  color: string | null;
+};
+
 export type Agent = {
   id: string;
   full_name: string | null;
@@ -49,13 +56,22 @@ export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
   try {
     const supabase = await supabaseServer();
 
+    // agents are stored in profiles (per your Supabase screenshot)
     const { data, error } = await supabase
-      .from("agents")
-      .select("id,full_name,email")
+      .from("profiles")
+      .select("id,full_name")
+      .eq("role", "agent")
       .order("created_at", { ascending: true });
 
     if (error) return { ok: false, error: error.message };
-    return { ok: true, data: (data ?? []) as Agent[] };
+
+    const mapped: Agent[] = (data ?? []).map((r: any) => ({
+      id: r.id,
+      full_name: r.full_name ?? null,
+      email: null,
+    }));
+
+    return { ok: true, data: mapped };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
   }
@@ -65,7 +81,6 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
   try {
     const supabase = await supabaseServer();
 
-    // minimal required fields fallback
     const insertRow: any = {
       full_name: payload.full_name ?? null,
       phone: payload.phone ?? null,
