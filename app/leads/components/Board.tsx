@@ -8,11 +8,13 @@ import { moveLeadAction, listAgentsAction, assignLeadAction, type Lead, type Lea
 function normalizeLead(l: any): Lead {
   return {
     id: l.id,
+
     full_name: l.full_name ?? null,
     phone: l.phone ?? null,
     email: l.email ?? null,
     source: l.source ?? null,
     notes: l.notes ?? null,
+
     status: (l.status ?? "New") as LeadStatus,
     assigned_to: l.assigned_to ?? null,
     follow_up_at: l.follow_up_at ?? null,
@@ -22,9 +24,11 @@ function normalizeLead(l: any): Lead {
     destination: l.destination ?? null,
     travel_date: l.travel_date ?? null,
     return_date: l.return_date ?? null,
+
     pax_adults: l.pax_adults ?? null,
     pax_children: l.pax_children ?? null,
     pax_infants: l.pax_infants ?? null,
+
     budget: l.budget ?? null,
     airline: l.airline ?? null,
     cabin: l.cabin ?? null,
@@ -42,18 +46,17 @@ export default function Board({ initialLeads }: { initialLeads: any[] }) {
     (async () => {
       const res = await listAgentsAction();
       if (res.ok) setAgents(res.data ?? []);
+      else setAgents([]);
     })();
   }, []);
 
   function onMove(id: string, status: LeadStatus) {
-    // optimistic update
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, status } : l)));
 
     startTransition(async () => {
       const res = await moveLeadAction({ id, status });
       if (!res.ok) {
-        // rollback if needed (simple reload-style fallback)
-        // (aap chaho to yahan toast + refetch kar sakte ho)
+        // optional: alert(res.error)
       }
     });
   }
@@ -64,7 +67,7 @@ export default function Board({ initialLeads }: { initialLeads: any[] }) {
     startTransition(async () => {
       const res = await assignLeadAction({ id, assigned_to });
       if (!res.ok) {
-        // optional rollback
+        // optional: alert(res.error)
       }
     });
   }
