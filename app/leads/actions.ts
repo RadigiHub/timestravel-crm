@@ -1,20 +1,9 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export type LeadStatus = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
-
-export type Lead = {
-  id: string;
-  full_name: string | null;
-  phone: string | null;
-  email: string | null;
-  source: string | null;
-  notes: string | null;
-  status: LeadStatus | null;
-  assigned_to: string | null;
-  created_at?: string | null;
-};
 
 export type Agent = {
   id: string;
@@ -23,105 +12,137 @@ export type Agent = {
   created_at?: string | null;
 };
 
+export type Lead = {
+  id: string;
+
+  full_name: string | null;
+  phone: string | null;
+  email: string | null;
+  source: string | null;
+  notes: string | null;
+
+  status: LeadStatus;
+  assigned_to: string | null;
+  follow_up_at: string | null;
+  created_at: string;
+
+  // Detailed lead form fields
+  departure: string | null;
+  destination: string | null;
+  travel_date: string | null;
+  return_date: string | null;
+
+  pax_adults: number | null;
+  pax_children: number | null;
+  pax_infants: number | null;
+
+  budget: number | null;
+  airline: string | null;
+  cabin: string | null;
+};
+
 type Ok<T> = { ok: true; data: T };
 type Fail = { ok: false; error: string };
 
-function clean(v?: string | null) {
-  return (v ?? "").trim();
+function fail(error: unknown): Fail {
+  return { ok: false, error: error instanceof Error ? error.message : String(error) };
 }
 
-async function db() {
-  // IMPORTANT: supabaseServer is a FUNCTION in your project
-  // so we must call it to get the client
-  return await supabaseServer();
-}
-
-/** Agents list for dropdown */
 export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
   try {
-    const supabase = await db();
+    const supabase = await supabaseServer();
+
+    // NOTE: agar tumhare agents table me `name` column hai aur `full_name` nahi,
+    // to select me name bhi le aao aur neeche map me set kar do.
     const { data, error } = await supabase
       .from("agents")
-      .select("id,full_name,email,created_at")
+      .select("id,full_name,email,created_at,name")
       .order("created_at", { ascending: true });
 
-    if (error) return { ok: false, error: error.message };
-    return { ok: true, data: (data ?? []) as Agent[] };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Failed to load agents" };
+    if (error) return fail(error);
+
+    const rows: any[] = data ?? [];
+    const cleaned: Agent[] = rows.map((a) => ({
+      id: a.id,
+      full_name: (a.full_name ?? a.name ?? null) as string | null,
+      email: (a.email ?? null) as string | null,
+      created_at: (a.created_at ?? null) as string | null,
+    }));
+
+    return { ok: true, data: cleaned };
+  } catch (e) {
+    return fail(e);
   }
 }
 
-/** Create lead (detail form) */
-export async function createLeadAction(payload: {
-  full_name?: string;
-  phone?: string;
-  email?: string;
-  source?: string;
-  notes?: string;
-  status?: LeadStatus;
-  assigned_to?: string | null;
-}): Promise<Ok<Lead> | Fail> {
+export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead> | Fail> {
   try {
-    const supabase = await db();
+    const supabase = await supabaseServer();
 
-    const insertRow = {
-      full_name: clean(payload.full_name) || null,
-      phone: clean(payload.phone) || null,
-      email: clean(payload.email) || null,
-      source: clean(payload.source) || "web",
-      notes: clean(payload.notes) || null,
-      status: payload.status ?? "New",
+    const insertPayload: any = {
+      full_name: payload.full_name ?? null,
+      phone: payload.phone ?? null,
+      email: payload.email ?? null,
+      source: payload.source ?? null,
+      notes: payload.notes ?? null,
+
+      status: (payload.status ?? "New") as LeadStatus,
       assigned_to: payload.assigned_to ?? null,
+      follow_up_at: payload.follow_up_at ?? null,
+
+      departure: payload.departure ?? null,
+      destination: payload.destination ?? null,
+      travel_date: payload.travel_date ?? null,
+      return_date: payload.return_date ?? null,
+
+      pax_adults: payload.pax_adults ?? null,
+      pax_children: payload.pax_children ?? null,
+      pax_infants: payload.pax_infants ?? null,
+
+      budget: payload.budget ?? null,
+      airline: payload.airline ?? null,
+      cabin: payload.cabin ?? null,
     };
 
-    const { data, error } = await supabase
-      .from("leads")
-      .insert(insertRow)
-      .select("*")
-      .single();
+    const { data, error } = await supabase.from("leads").insert(insertPayload).select("*").single();
 
-    if (error) return { ok: false, error: error.message };
+    if (error) return fail(error);
+
+    revalidatePath("/leads");
     return { ok: true, data: data as Lead };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Failed to create lead" };
+  } catch (e) {
+    return fail(e);
   }
 }
 
-/** Move lead status on board */
-export async function moveLeadAction(args: {
-  leadId: string;
-  status: LeadStatus;
-}): Promise<Ok<true> | Fail> {
+export async function moveLeadAction(input: { id: string; status: LeadStatus }): Promise<Ok<true> | Fail> {
   try {
-    const supabase = await db();
-    const { error } = await supabase
-      .from("leads")
-      .update({ status: args.status })
-      .eq("id", args.leadId);
+    const supabase = await supabaseServer();
 
-    if (error) return { ok: false, error: error.message };
+    const { error } = await supabase.from("leads").update({ status: input.status }).eq("id", input.id);
+    if (error) return fail(error);
+
+    revalidatePath("/leads");
     return { ok: true, data: true };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Failed to move lead" };
+  } catch (e) {
+    return fail(e);
   }
 }
 
-/** Assign lead to agent */
-export async function assignLeadAction(args: {
-  leadId: string;
-  agentId: string | null;
-}): Promise<Ok<true> | Fail> {
+export async function assignLeadAction(input: { id: string; assigned_to: string | null }): Promise<Ok<true> | Fail> {
   try {
-    const supabase = await db();
+    const supabase = await supabaseServer();
+
     const { error } = await supabase
       .from("leads")
-      .update({ assigned_to: args.agentId })
-      .eq("id", args.leadId);
+      .update({ assigned_to: input.assigned_to })
+      .eq("id", input.id);
 
-    if (error) return { ok: false, error: error.message };
+    if (error) return fail(error);
+
+    revalidatePath("/leads");
     return { ok: true, data: true };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Failed to assign lead" };
+  } catch (e) {
+    return fail(e);
   }
 }
