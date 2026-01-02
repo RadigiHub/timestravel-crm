@@ -1,20 +1,9 @@
 "use client";
 
-import * as React from "react";
-import {
-  DndContext,
-  DragEndEvent,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  closestCenter,
-} from "@dnd-kit/core";
-import { arrayMove } from "@dnd-kit/sortable";
-
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Column from "./Column";
 import AddLeadModal from "./AddLeadModal";
-import { moveLeadAction, listAgentsAction, assignLeadAction } from "../actions";
-import type { Lead, LeadStatus, Agent } from "../actions";
+import { moveLeadAction, listAgentsAction, assignLeadAction, type Lead, type LeadStatus, type Agent } from "../actions";
 
 function normalizeLead(l: any): Lead {
   return {
@@ -23,656 +12,86 @@ function normalizeLead(l: any): Lead {
     phone: l.phone ?? null,
     email: l.email ?? null,
     source: l.source ?? null,
-    status_id: l.status_id,
-    position: Number(l.position ?? 0),
-    priority: (l.priority ?? "warm") as any,
+    notes: l.notes ?? null,
+    status: (l.status ?? "New") as LeadStatus,
     assigned_to: l.assigned_to ?? null,
-    created_by: l.created_by ?? null,
-    last_activity_at: l.last_activity_at ?? null,
-    created_at: l.created_at ?? "",
-    updated_at: l.updated_at ?? "",
+    follow_up_at: l.follow_up_at ?? null,
+    created_at: l.created_at,
 
-    details: l.details ?? {},
-
-    trip_type: (l.trip_type ?? null) as any,
     departure: l.departure ?? null,
     destination: l.destination ?? null,
-    depart_date: l.depart_date ?? null,
+    travel_date: l.travel_date ?? null,
     return_date: l.return_date ?? null,
-    adults: typeof l.adults === "number" ? l.adults : l.adults ?? null,
-    children: typeof l.children === "number" ? l.children : l.children ?? null,
-    infants: typeof l.infants === "number" ? l.infants : l.infants ?? null,
-    cabin_class: (l.cabin_class ?? null) as any,
+    pax_adults: l.pax_adults ?? null,
+    pax_children: l.pax_children ?? null,
+    pax_infants: l.pax_infants ?? null,
     budget: l.budget ?? null,
-    preferred_airline: l.preferred_airline ?? null,
-    whatsapp: l.whatsapp ?? null,
-    notes: l.notes ?? null,
-    follow_up_date: l.follow_up_date ?? null,
-    whatsapp_text: l.whatsapp_text ?? null,
+    airline: l.airline ?? null,
+    cabin: l.cabin ?? null,
   };
 }
 
-function safeIncludes(hay: string | null | undefined, needle: string) {
-  if (!hay) return false;
-  return hay.toLowerCase().includes(needle);
-}
+export default function Board({ initialLeads }: { initialLeads: any[] }) {
+  const [pending, startTransition] = useTransition();
+  const [leads, setLeads] = useState<Lead[]>(() => (initialLeads ?? []).map(normalizeLead));
+  const [agents, setAgents] = useState<Agent[]>([]);
 
-type AgentLite = {
-  id: string;
-  full_name?: string | null;
-};
+  const columns: LeadStatus[] = useMemo(() => ["New", "Contacted", "Follow-Up", "Booked", "Lost"], []);
 
-export default function Board({
-  statuses,
-  initialLeads,
-}: {
-  statuses: LeadStatus[];
-  initialLeads: Lead[];
-}) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 6 },
-    })
-  );
-
-  const [leads, setLeads] = React.useState<Lead[]>(
-    (initialLeads ?? []).map(normalizeLead)
-  );
-
-  const leadsById = React.useMemo(() => {
-    const map: Record<string, Lead> = {};
-    for (const l of leads) map[l.id] = l;
-    return map;
-  }, [leads]);
-
-  const [orderByStatus, setOrderByStatus] = React.useState<Record<string, string[]>>({});
-
-  React.useEffect(() => {
-    const next: Record<string, string[]> = {};
-    for (const s of statuses) next[s.id] = [];
-
-    const sorted = [...leads].sort((a, b) => {
-      if (a.status_id === b.status_id) return (a.position ?? 0) - (b.position ?? 0);
-      return a.status_id.localeCompare(b.status_id);
-    });
-
-    for (const l of sorted) {
-      const sid = l.status_id;
-      if (!sid) continue;
-      if (!next[sid]) next[sid] = [];
-      next[sid].push(l.id);
-    }
-
-    setOrderByStatus(next);
-  }, [statuses, leads]);
-
-  // ✅ Agents map (for showing names instead of UUIDs)
-  const [agentsById, setAgentsById] = React.useState<Record<string, AgentLite>>({});
-
-  React.useEffect(() => {
-    let cancelled = false;
-
+  useEffect(() => {
     (async () => {
-      try {
-        const res = await listAgentsAction();
-        if (cancelled) return;
-
-        if (!res || res.ok !== true) return;
-
-        const agents = res.agents ?? [];
-        const map: Record<string, AgentLite> = {};
-        for (const a of agents as Agent[]) {
-          const id = (a as any).id as string;
-          if (!id) continue;
-          map[id] = {
-            id,
-            full_name: (a as any).full_name ?? null,
-          };
-        }
-        setAgentsById(map);
-      } catch {
-        // ignore
-      }
+      const res = await listAgentsAction();
+      if (res.ok) setAgents(res.data ?? []);
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, []);
 
-  const getAgentLabel = React.useCallback(
-    (agentId: string) => {
-      const a = agentsById[agentId];
-      const name = a?.full_name?.trim();
-      if (name) return name;
-      return agentId.length > 10 ? `${agentId.slice(0, 8)}…` : agentId;
-    },
-    [agentsById]
-  );
+  function onMove(id: string, status: LeadStatus) {
+    // optimistic update
+    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, status } : l)));
 
-  // ✅ Filters
-  const [search, setSearch] = React.useState("");
-  const [assignedFilter, setAssignedFilter] = React.useState<string>("all"); // all | unassigned | agentId
-
-  const searchNeedle = search.trim().toLowerCase();
-
-  const passesFilters = React.useCallback(
-    (lead: Lead) => {
-      if (assignedFilter === "unassigned") {
-        if (lead.assigned_to) return false;
-      } else if (assignedFilter !== "all") {
-        if ((lead.assigned_to ?? "") !== assignedFilter) return false;
+    startTransition(async () => {
+      const res = await moveLeadAction({ id, status });
+      if (!res.ok) {
+        // rollback if needed (simple reload-style fallback)
+        // (aap chaho to yahan toast + refetch kar sakte ho)
       }
-
-      if (!searchNeedle) return true;
-
-      return (
-        safeIncludes(lead.full_name, searchNeedle) ||
-        safeIncludes(lead.phone, searchNeedle) ||
-        safeIncludes(lead.email, searchNeedle) ||
-        safeIncludes(lead.source, searchNeedle) ||
-        safeIncludes(lead.destination, searchNeedle) ||
-        safeIncludes(lead.departure, searchNeedle)
-      );
-    },
-    [assignedFilter, searchNeedle]
-  );
-
-  const allowedLeadIds = React.useMemo(() => {
-    const set = new Set<string>();
-    for (const l of leads) {
-      if (passesFilters(l)) set.add(l.id);
-    }
-    return set;
-  }, [leads, passesFilters]);
-
-  const [viewLead, setViewLead] = React.useState<Lead | null>(null);
-
-  const [actionLead, setActionLead] = React.useState<Lead | null>(null);
-  const [actionAnchor, setActionAnchor] = React.useState<HTMLButtonElement | null>(null);
-
-  function openActions(lead: Lead, anchor: HTMLButtonElement) {
-    setActionLead(lead);
-    setActionAnchor(anchor);
-  }
-  function closeActions() {
-    setActionLead(null);
-    setActionAnchor(null);
-  }
-
-  async function onDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over) return;
-
-    const activeId = String(active.id);
-    const overId = String(over.id);
-    if (activeId === overId) return;
-
-    let fromStatusId: string | null = null;
-    let toStatusId: string | null = null;
-
-    for (const s of statuses) {
-      const ids = orderByStatus[s.id] ?? [];
-      if (ids.includes(activeId)) fromStatusId = s.id;
-      if (ids.includes(overId)) toStatusId = s.id;
-    }
-
-    if (!toStatusId && orderByStatus[overId]) {
-      toStatusId = overId;
-    }
-
-    if (!fromStatusId || !toStatusId) return;
-
-    const fromIds = [...(orderByStatus[fromStatusId] ?? [])];
-    const toIds = fromStatusId === toStatusId ? fromIds : [...(orderByStatus[toStatusId] ?? [])];
-
-    const oldIndex = fromIds.indexOf(activeId);
-    const newIndex = toIds.indexOf(overId);
-
-    if (fromStatusId === toStatusId) {
-      const reordered = arrayMove(fromIds, oldIndex, newIndex < 0 ? fromIds.length - 1 : newIndex);
-      const next = { ...orderByStatus, [fromStatusId]: reordered };
-      setOrderByStatus(next);
-
-      setLeads((prev) =>
-        prev.map((l) => {
-          if (l.status_id !== fromStatusId) return l;
-          const pos = reordered.indexOf(l.id);
-          return { ...l, position: pos };
-        })
-      );
-
-      await moveLeadAction({
-        fromStatusId,
-        toStatusId,
-        fromOrderIds: reordered,
-        toOrderIds: reordered,
-      });
-
-      return;
-    }
-
-    fromIds.splice(oldIndex, 1);
-
-    const insertIndex = newIndex >= 0 ? newIndex : toIds.length;
-    toIds.splice(insertIndex, 0, activeId);
-
-    const next = {
-      ...orderByStatus,
-      [fromStatusId]: fromIds,
-      [toStatusId]: toIds,
-    };
-    setOrderByStatus(next);
-
-    setLeads((prev) =>
-      prev.map((l) => {
-        if (l.id === activeId) return { ...l, status_id: toStatusId!, position: insertIndex };
-        if (l.status_id === fromStatusId) return { ...l, position: fromIds.indexOf(l.id) };
-        if (l.status_id === toStatusId) return { ...l, position: toIds.indexOf(l.id) };
-        return l;
-      })
-    );
-
-    await moveLeadAction({
-      fromStatusId,
-      toStatusId,
-      fromOrderIds: fromIds,
-      toOrderIds: toIds,
     });
   }
 
-  const firstStatusId = statuses?.[0]?.id ?? "";
+  function onAssign(id: string, assigned_to: string | null) {
+    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, assigned_to } : l)));
 
-  const menuStyle: React.CSSProperties | undefined = actionAnchor
-    ? (() => {
-        const rect = actionAnchor.getBoundingClientRect();
-        return {
-          position: "fixed",
-          top: rect.bottom + 8,
-          left: rect.left,
-          zIndex: 60,
-        };
-      })()
-    : undefined;
-
-  function copyText(text: string) {
-    navigator.clipboard?.writeText(text).catch(() => {});
-  }
-
-  function openWhatsApp(phone: string | null, name: string | null, customText?: string | null) {
-    if (!phone) return;
-    const msg = encodeURIComponent(
-      customText?.trim()
-        ? customText.trim()
-        : `Hi ${name ?? ""}, regarding your travel inquiry...`
-    );
-    const digits = phone.replace(/[^\d]/g, "");
-    window.open(`https://wa.me/${digits}?text=${msg}`, "_blank");
-  }
-
-  const paxText = (l: Lead) => {
-    const a = typeof l.adults === "number" ? l.adults : null;
-    const c = typeof l.children === "number" ? l.children : null;
-    const i = typeof l.infants === "number" ? l.infants : null;
-    const parts = [
-      a != null ? `A:${a}` : null,
-      c != null ? `C:${c}` : null,
-      i != null ? `I:${i}` : null,
-    ].filter(Boolean);
-    return parts.length ? parts.join("  ") : "—";
-  };
-
-  // ✅ Dropdown options based on leads + show agent names via agentsById
-  const assignedAgentIds = React.useMemo(() => {
-    const ids = new Set<string>();
-    for (const l of leads) {
-      if (l.assigned_to) ids.add(l.assigned_to);
-    }
-    return Array.from(ids).sort((a, b) => getAgentLabel(a).localeCompare(getAgentLabel(b)));
-  }, [leads, getAgentLabel]);
-
-  // ✅ For Assign menu (prefer showing ALL agents; fallback: from leads)
-  const allAgentIds = React.useMemo(() => {
-    const ids = new Set<string>(Object.keys(agentsById));
-    if (!ids.size) {
-      for (const l of leads) if (l.assigned_to) ids.add(l.assigned_to);
-    }
-    return Array.from(ids).sort((a, b) => getAgentLabel(a).localeCompare(getAgentLabel(b)));
-  }, [agentsById, leads, getAgentLabel]);
-
-  async function assignLead(leadId: string, agentId: string | null) {
-    const res = await assignLeadAction({ lead_id: leadId, assigned_to: agentId });
-    if (!res || res.ok !== true) return;
-
-    const updated = normalizeLead(res.lead);
-    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, assigned_to: updated.assigned_to } : l)));
-
-    // keep actionLead in sync (so label updates instantly)
-    setActionLead((prev) => (prev && prev.id === leadId ? { ...prev, assigned_to: updated.assigned_to } : prev));
+    startTransition(async () => {
+      const res = await assignLeadAction({ id, assigned_to });
+      if (!res.ok) {
+        // optional rollback
+      }
+    });
   }
 
   return (
-    <div className="mt-5">
-      <div className="mb-4 flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-sm text-zinc-600">
-            Tip: Drag only from the <span className="font-semibold">Drag</span> handle.
-          </div>
-
-          {firstStatusId ? (
-            <AddLeadModal
-              defaultStatusId={firstStatusId}
-              onCreated={(newLead) => {
-                const lead = normalizeLead(newLead);
-                setLeads((prev) => [lead, ...prev]);
-                setOrderByStatus((prev) => {
-                  const cur = prev[firstStatusId] ?? [];
-                  return { ...prev, [firstStatusId]: [lead.id, ...cur] };
-                });
-              }}
-            />
-          ) : null}
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xl font-semibold text-zinc-900">Leads Board</div>
+          <div className="text-sm text-zinc-600">Drag & drop pipeline + assign agents.</div>
         </div>
-
-        {/* ✅ Filter Bar */}
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="flex w-full flex-col gap-2 md:flex-row md:items-center">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name / phone / email / source / route..."
-              className="w-full md:w-[420px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            />
-
-            <select
-              value={assignedFilter}
-              onChange={(e) => setAssignedFilter(e.target.value)}
-              className="w-full md:w-[260px] rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-            >
-              <option value="all">All (Assigned + Unassigned)</option>
-              <option value="unassigned">Unassigned Only</option>
-              {assignedAgentIds.map((id) => (
-                <option key={id} value={id}>
-                  Assigned: {getAgentLabel(id)}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="text-xs text-zinc-500">
-            Showing{" "}
-            <span className="font-semibold text-zinc-700">{allowedLeadIds.size}</span>{" "}
-            lead(s)
-          </div>
-        </div>
+        <AddLeadModal />
       </div>
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <div className="flex gap-4 overflow-x-auto pb-4">
-          {statuses.map((s) => {
-            const rawIds = orderByStatus[s.id] ?? [];
-            const filteredIds = rawIds.filter((id) => allowedLeadIds.has(id));
-
-            return (
-              <Column
-                key={s.id}
-                status={s as any}
-                leadIds={filteredIds}
-                leadsById={leadsById as any}
-                onView={(lead: Lead) => setViewLead(lead)}
-                onAction={(lead: Lead, anchor: HTMLButtonElement) => openActions(lead, anchor)}
-              />
-            );
-          })}
-        </div>
-      </DndContext>
-
-      {/* VIEW MODAL */}
-      {viewLead && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setViewLead(null);
-          }}
-        >
-          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-              <div className="text-base font-semibold text-zinc-900">Lead Details</div>
-              <button
-                type="button"
-                className="rounded-lg px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100"
-                onClick={() => setViewLead(null)}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-5 space-y-4">
-              <div>
-                <div className="text-xs text-zinc-500">Name</div>
-                <div className="text-lg font-semibold text-zinc-900">{viewLead.full_name ?? "—"}</div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div>
-                  <div className="text-xs text-zinc-500">Phone</div>
-                  <div className="text-sm text-zinc-800">{viewLead.phone ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-zinc-500">Email</div>
-                  <div className="text-sm text-zinc-800">{viewLead.email ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-zinc-500">Source</div>
-                  <div className="text-sm text-zinc-800">{viewLead.source ?? "—"}</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div>
-                  <div className="text-xs text-zinc-500">Trip Type</div>
-                  <div className="text-sm text-zinc-800">{viewLead.trip_type ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-zinc-500">Cabin</div>
-                  <div className="text-sm text-zinc-800">{viewLead.cabin_class ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-zinc-500">PAX</div>
-                  <div className="text-sm text-zinc-800">{paxText(viewLead)}</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div>
-                  <div className="text-xs text-zinc-500">Route</div>
-                  <div className="text-sm text-zinc-800">
-                    {(viewLead.departure ?? "—")} → {(viewLead.destination ?? "—")}
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-zinc-500">Dates</div>
-                  <div className="text-sm text-zinc-800">
-                    {viewLead.depart_date ?? "—"}
-                    {viewLead.return_date ? `  →  ${viewLead.return_date}` : ""}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div>
-                  <div className="text-xs text-zinc-500">Budget</div>
-                  <div className="text-sm text-zinc-800">{viewLead.budget ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-zinc-500">Preferred Airline</div>
-                  <div className="text-sm text-zinc-800">{viewLead.preferred_airline ?? "—"}</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div>
-                  <div className="text-xs text-zinc-500">WhatsApp</div>
-                  <div className="text-sm text-zinc-800">{viewLead.whatsapp ?? "—"}</div>
-                </div>
-                <div>
-                  <div className="text-xs text-zinc-500">Follow-up Date</div>
-                  <div className="text-sm text-zinc-800">{viewLead.follow_up_date ?? "—"}</div>
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs text-zinc-500">Notes</div>
-                <div className="whitespace-pre-wrap text-sm text-zinc-800">{viewLead.notes ?? "—"}</div>
-              </div>
-
-              <div>
-                <div className="text-xs text-zinc-500">WhatsApp Text</div>
-                <div className="whitespace-pre-wrap text-sm text-zinc-800">{viewLead.whatsapp_text ?? "—"}</div>
-              </div>
-
-              <div className="flex flex-wrap gap-2 pt-2">
-                <button
-                  type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
-                  onClick={() => {
-                    if (viewLead.phone) window.open(`tel:${viewLead.phone}`, "_self");
-                  }}
-                >
-                  Call
-                </button>
-
-                <button
-                  type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
-                  onClick={() =>
-                    openWhatsApp(
-                      viewLead.whatsapp ?? viewLead.phone,
-                      viewLead.full_name,
-                      viewLead.whatsapp_text
-                    )
-                  }
-                >
-                  WhatsApp
-                </button>
-
-                <button
-                  type="button"
-                  className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
-                  onClick={() => setViewLead(null)}
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ACTION MENU */}
-      {actionLead && actionAnchor && (
-        <>
-          <div className="fixed inset-0 z-50" onMouseDown={closeActions} />
-          <div style={menuStyle} className="z-[60] w-64 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
-            <button
-              type="button"
-              className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
-              onClick={() => {
-                closeActions();
-                if (actionLead.phone) window.open(`tel:${actionLead.phone}`, "_self");
-              }}
-            >
-              Call
-            </button>
-
-            <button
-              type="button"
-              className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
-              onClick={() => {
-                closeActions();
-                openWhatsApp(actionLead.whatsapp ?? actionLead.phone, actionLead.full_name, actionLead.whatsapp_text);
-              }}
-            >
-              WhatsApp Message
-            </button>
-
-            <button
-              type="button"
-              className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
-              onClick={() => {
-                closeActions();
-                if (actionLead.email) window.open(`mailto:${actionLead.email}`, "_self");
-              }}
-            >
-              Email
-            </button>
-
-            <div className="my-1 border-t border-zinc-100" />
-
-            {/* ✅ Assign Lead */}
-            <div className="px-3 py-2">
-              <div className="mb-1 text-xs text-zinc-500">Assign Lead</div>
-              <select
-                value={actionLead.assigned_to ?? ""}
-                onChange={async (e) => {
-                  const v = e.target.value;
-                  await assignLead(actionLead.id, v ? v : null);
-                }}
-                className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-2 text-sm outline-none focus:border-zinc-400"
-              >
-                <option value="">Unassigned</option>
-                {allAgentIds.map((id) => (
-                  <option key={id} value={id}>
-                    {getAgentLabel(id)}
-                  </option>
-                ))}
-              </select>
-
-              <div className="mt-1 text-[11px] text-zinc-500">
-                Current:{" "}
-                <span className="font-medium text-zinc-700">
-                  {actionLead.assigned_to ? getAgentLabel(actionLead.assigned_to) : "Unassigned"}
-                </span>
-              </div>
-            </div>
-
-            <div className="my-1 border-t border-zinc-100" />
-
-            <button
-              type="button"
-              className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
-              onClick={() => {
-                copyText(actionLead.phone ?? "");
-                closeActions();
-              }}
-            >
-              Copy Phone
-            </button>
-
-            <button
-              type="button"
-              className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
-              onClick={() => {
-                copyText(actionLead.email ?? "");
-                closeActions();
-              }}
-            >
-              Copy Email
-            </button>
-
-            <button
-              type="button"
-              className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-zinc-50"
-              onClick={() => {
-                setViewLead(actionLead);
-                closeActions();
-              }}
-            >
-              Open Details
-            </button>
-          </div>
-        </>
-      )}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+        {columns.map((c) => (
+          <Column
+            key={c}
+            title={c}
+            leads={leads.filter((l) => l.status === c)}
+            agents={agents}
+            onMove={onMove}
+            onAssign={onAssign}
+            disabled={pending}
+          />
+        ))}
+      </div>
     </div>
   );
 }
