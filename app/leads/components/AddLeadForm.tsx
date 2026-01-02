@@ -13,23 +13,12 @@ function clean(v?: string) {
 }
 
 type Props = {
-  /** optional statuses coming from parent */
   statuses?: LeadStatus[];
-  /** optional default status */
-  defaultStatusId?: LeadStatus | string;
+  defaultStatusId?: string; // we will map this into status if provided
   onCancel?: () => void;
   onCreated?: (lead: any) => void;
-  /** compatibility */
-  onDone?: () => void;
+  onDone?: () => void; // optional simple callback
 };
-
-const DEFAULT_STATUSES: LeadStatus[] = [
-  "New",
-  "Contacted",
-  "Follow-Up",
-  "Booked",
-  "Lost",
-];
 
 export default function AddLeadForm({
   statuses,
@@ -40,32 +29,27 @@ export default function AddLeadForm({
 }: Props) {
   const [isPending, startTransition] = useTransition();
 
-  // form fields (DETAIL form)
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [source, setSource] = useState("web");
   const [notes, setNotes] = useState("");
-  const [status, setStatus] = useState<LeadStatus>("New");
   const [assignedTo, setAssignedTo] = useState<string>("");
 
-  // agents
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const statusOptions = useMemo<LeadStatus[]>(
+    () => statuses ?? ["New", "Contacted", "Follow-Up", "Booked", "Lost"],
+    [statuses]
+  );
 
-  const statusList = useMemo(() => {
-    return (statuses && statuses.length ? statuses : DEFAULT_STATUSES) as LeadStatus[];
-  }, [statuses]);
+  // defaultStatusId may come from older code; treat it as LeadStatus when possible
+  const initialStatus =
+    (defaultStatusId as LeadStatus | undefined) ?? statusOptions[0];
 
-  // init default status
-  useEffect(() => {
-    const ds = (defaultStatusId as LeadStatus | undefined) ?? "New";
-    if (statusList.includes(ds)) setStatus(ds);
-  }, [defaultStatusId, statusList]);
+  const [status, setStatus] = useState<LeadStatus>(initialStatus);
 
-  // load agents
   useEffect(() => {
     let mounted = true;
-
     startTransition(async () => {
       const res = await listAgentsAction();
       if (!mounted) return;
@@ -82,135 +66,136 @@ export default function AddLeadForm({
     };
   }, []);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-
+  function submit() {
     startTransition(async () => {
       const res = await createLeadAction({
-        name: clean(fullName), // map full_name -> name (DB)
+        full_name: clean(fullName),
         phone: clean(phone),
         email: clean(email),
         source: clean(source) || "web",
-        notes: clean(notes),
+        notes: clean(notes) || undefined,
         status,
         assigned_to: assignedTo ? assignedTo : null,
       });
 
-      if (res && "ok" in res && res.ok) {
+      if (res.ok) {
         onCreated?.(res.data);
         onDone?.();
       } else {
-        alert((res as any)?.error ?? "Failed to create lead");
+        alert(res.error);
       }
     });
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium mb-1">Full Name</label>
-        <input
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          className="w-full rounded-md border px-3 py-2"
-          placeholder="e.g. Ahmed Khan"
-          required
-        />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-3">
         <div>
-          <label className="block text-sm font-medium mb-1">Phone</label>
+          <label className="text-sm font-medium">Full Name</label>
           <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            className="w-full rounded-md border px-3 py-2"
-            placeholder="+44..."
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Email</label>
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-md border px-3 py-2"
-            placeholder="name@email.com"
-            type="email"
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium mb-1">Source</label>
-          <input
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-            className="w-full rounded-md border px-3 py-2"
-            placeholder="web / whatsapp / facebook..."
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="e.g. Ahmed Khan"
           />
         </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-sm font-medium">Phone</label>
+            <input
+              className="mt-1 w-full rounded-md border px-3 py-2"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+44..."
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Email</label>
+            <input
+              className="mt-1 w-full rounded-md border px-3 py-2"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@email.com"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-sm font-medium">Source</label>
+            <input
+              className="mt-1 w-full rounded-md border px-3 py-2"
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              placeholder="web / whatsapp / meta / call"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Status</label>
+            <select
+              className="mt-1 w-full rounded-md border px-3 py-2"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as LeadStatus)}
+            >
+              {statusOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
         <div>
-          <label className="block text-sm font-medium mb-1">Status</label>
+          <label className="text-sm font-medium">Assign To (optional)</label>
           <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as LeadStatus)}
-            className="w-full rounded-md border px-3 py-2"
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            value={assignedTo}
+            onChange={(e) => setAssignedTo(e.target.value)}
           >
-            {statusList.map((s) => (
-              <option key={s} value={s}>
-                {s}
+            <option value="">Unassigned</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {(a.full_name ?? "Unnamed") + (a.email ? ` (${a.email})` : "")}
               </option>
             ))}
           </select>
         </div>
+
+        <div>
+          <label className="text-sm font-medium">Notes</label>
+          <textarea
+            className="mt-1 w-full rounded-md border px-3 py-2"
+            rows={4}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Any details..."
+          />
+        </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium mb-1">Assign To</label>
-        <select
-          value={assignedTo}
-          onChange={(e) => setAssignedTo(e.target.value)}
-          className="w-full rounded-md border px-3 py-2"
-        >
-          <option value="">Unassigned</option>
-          {agents.map((a) => (
-            <option key={a.id} value={a.id}>
-              {(a.name ?? "Unnamed") + (a.email ? ` (${a.email})` : "")}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium mb-1">Notes</label>
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          className="w-full rounded-md border px-3 py-2 min-h-[110px]"
-          placeholder="Any details…"
-        />
-      </div>
-
-      <div className="flex items-center justify-end gap-2 pt-2">
+      <div className="flex items-center justify-end gap-2">
         <button
-          type="button"
-          onClick={() => onCancel?.()}
           className="rounded-md border px-4 py-2"
+          onClick={() => onCancel?.()}
           disabled={isPending}
+          type="button"
         >
           Cancel
         </button>
 
         <button
-          type="submit"
-          className="rounded-md bg-black text-white px-4 py-2"
+          className="rounded-md bg-black px-4 py-2 text-white disabled:opacity-60"
+          onClick={submit}
           disabled={isPending}
+          type="button"
         >
           {isPending ? "Saving..." : "Create Lead"}
         </button>
       </div>
-    </form>
+    </div>
   );
 }
