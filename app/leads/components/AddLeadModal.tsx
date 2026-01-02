@@ -1,44 +1,38 @@
 "use client";
 
-import * as React from "react";
+import { useMemo, useState } from "react";
 import AddLeadForm from "./AddLeadForm";
 import type { LeadStatus } from "../actions";
 
-export default function AddLeadModal({
-  statuses,
-  defaultStatusId,
-  onCreated,
-}: {
-  statuses?: LeadStatus[];
-  defaultStatusId: string;
-  onCreated: (lead: any) => void;
-}) {
-  const [open, setOpen] = React.useState(false);
+export default function AddLeadModal({ onDone }: { onDone?: () => void }) {
+  const [open, setOpen] = useState(false);
+
+  const statuses = useMemo<LeadStatus[]>(
+    () => ["New", "Contacted", "Follow-Up", "Booked", "Lost"],
+    []
+  );
+
+  const defaultStatusId = "New";
 
   return (
     <>
       <button
-        type="button"
         onClick={() => setOpen(true)}
-        className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+        className="rounded-xl bg-zinc-900 px-3 py-2 text-sm font-medium text-white hover:bg-zinc-800"
       >
         + Add Lead
       </button>
 
       {open ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setOpen(false);
-          }}
-        >
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-              <div className="text-base font-semibold text-zinc-900">Add Lead</div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-zinc-100 p-4">
+              <div className="text-sm font-semibold text-zinc-900">
+                Add New Lead
+              </div>
               <button
-                type="button"
-                className="rounded-lg px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100"
                 onClick={() => setOpen(false)}
+                className="rounded-lg px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100"
               >
                 ✕
               </button>
@@ -49,9 +43,13 @@ export default function AddLeadModal({
                 statuses={statuses}
                 defaultStatusId={defaultStatusId}
                 onCancel={() => setOpen(false)}
-                onCreated={(lead) => {
-                  onCreated(lead);
+                onCreated={() => {
                   setOpen(false);
+                  onDone?.();
+                }}
+                onDone={() => {
+                  setOpen(false);
+                  onDone?.();
                 }}
               />
             </div>
