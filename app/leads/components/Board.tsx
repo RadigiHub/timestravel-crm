@@ -1,15 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  DndContext,
-  closestCenter,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import { DndContext, closestCenter, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 
 import Column from "./Column";
 import AddLeadModal from "./AddLeadModal";
@@ -82,10 +75,12 @@ export default function Board({
   const leadIdsByStatus = useMemo(() => {
     const m: Record<string, string[]> = {};
     for (const s of orderedStatuses) m[s.id] = [];
+
     for (const l of leads) {
       const statusRow = orderedStatuses.find((s) => s.label === l.status);
       if (statusRow) m[statusRow.id].push(l.id);
     }
+
     return m;
   }, [leads, orderedStatuses]);
 
@@ -101,15 +96,14 @@ export default function Board({
 
     const newStage = statusRow.label;
 
-    // optimistic
+    // optimistic UI
     setLeads((prev) =>
       prev.map((l) => (l.id === leadId ? { ...l, status: newStage } : l))
     );
 
     const res = await moveLeadAction({ id: leadId, status: newStage });
     if (!res.ok) {
-      // fallback: simple revert by refetch not implemented yet
-      // (abhi build green + working drag first)
+      // optional: revert
     }
   }
 
@@ -119,7 +113,7 @@ export default function Board({
         <div>
           <div className="text-xl font-semibold text-zinc-900">Leads Board</div>
           <div className="text-sm text-zinc-600">
-            Drag & drop pipeline (status rows from lead_statuses).
+            Drag & drop pipeline (statuses from lead_statuses).
           </div>
         </div>
         <AddLeadModal />
