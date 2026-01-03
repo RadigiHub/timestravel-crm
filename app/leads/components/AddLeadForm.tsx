@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { createLeadAction, listAgentsAction, type Agent, type LeadStatus } from "../actions";
+import { createLeadAction, listAgentsAction, type Agent, type LeadStage } from "../actions";
 
 type Props = {
   onDone?: () => void;
 };
 
-const STATUSES: LeadStatus[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
+const STATUSES: LeadStage[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
+const [status, setStatus] = useState<LeadStage>("New");
 
 function toNum(v: string) {
   const n = Number(v);
