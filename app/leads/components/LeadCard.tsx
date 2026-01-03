@@ -68,7 +68,10 @@ export default function LeadCard({
 
           {/* Actions button support (for SortableLeadCard menu) */}
           <button
-            ref={(el) => (actionBtnRef.current = el)}
+            ref={(el) => {
+  actionBtnRef.current = el;
+}}
+
             className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
             onClick={(e) => {
               e.stopPropagation();
