@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { createLeadAction, type Lead, type LeadStage } from "../actions";
 
-const STATUSES: LeadStage[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
+const STAGES: LeadStage[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
 
 function toNum(v: string) {
   const n = Number(v);
@@ -85,7 +85,7 @@ export default function AddLeadForm({ onDone }: { onDone?: () => void }) {
         <input className="w-full rounded-xl border px-3 py-2" placeholder="Source (FB, WA, Call...)" value={source} onChange={(e) => setSource(e.target.value)} />
 
         <select className="w-full rounded-xl border px-3 py-2" value={status} onChange={(e) => setStatus(e.target.value as LeadStage)}>
-          {STATUSES.map((s) => (
+          {STAGES.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
