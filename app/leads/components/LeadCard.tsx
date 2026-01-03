@@ -14,51 +14,50 @@ export default function LeadCard({
   onAction: (lead: Lead, anchor: HTMLButtonElement) => void;
   dragHandleProps: any;
 }) {
+  const btnRef = React.useRef<HTMLButtonElement | null>(null);
+
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
-      <div className="flex items-center justify-between">
-        {/* Drag handle ONLY */}
+    <div className="rounded-xl border border-zinc-200 bg-white p-3 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
         <button
           type="button"
-          className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-100"
-          {...dragHandleProps}
-        >
-          Drag
-        </button>
-
-        <div className="text-[11px] text-zinc-500 capitalize">
-          {lead.priority ?? "warm"}
-        </div>
-      </div>
-
-      <div className="mt-2">
-        <div className="text-sm font-semibold text-zinc-900">
-          {lead.full_name ?? "—"}
-        </div>
-        <div className="mt-1 space-y-0.5 text-xs text-zinc-600">
-          {lead.phone ? <div>{lead.phone}</div> : null}
-          {lead.email ? <div>{lead.email}</div> : null}
-          <div>Source: {lead.source ?? "—"}</div>
-        </div>
-      </div>
-
-      <div className="mt-3 flex items-center gap-2">
-        <button
-          type="button"
-          className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium hover:bg-zinc-50"
+          className="text-left"
           onClick={() => onView(lead)}
         >
-          View
+          <div className="text-sm font-semibold text-zinc-900">
+            {lead.full_name ?? "Unnamed Lead"}
+          </div>
+          <div className="mt-1 text-xs text-zinc-600">
+            {lead.phone ?? lead.email ?? "No contact"}
+          </div>
         </button>
 
-        <button
-          type="button"
-          className="rounded-xl bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800"
-          onClick={(e) => onAction(lead, e.currentTarget)}
-        >
-          Action
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            {...dragHandleProps}
+            className="cursor-grab rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 active:cursor-grabbing"
+            aria-label="Drag"
+          >
+            ⋮⋮
+          </button>
+
+          <button
+            ref={btnRef}
+            type="button"
+            onClick={() => {
+              if (btnRef.current) onAction(lead, btnRef.current);
+            }}
+            className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
+          >
+            Action
+          </button>
+        </div>
       </div>
+
+      {lead.notes ? (
+        <div className="mt-2 line-clamp-2 text-xs text-zinc-600">{lead.notes}</div>
+      ) : null}
     </div>
   );
 }
