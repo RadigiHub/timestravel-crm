@@ -2,13 +2,13 @@
 
 import { supabaseServer } from "@/lib/supabase/server";
 
-/** Lead stage saved on leads.status (text) */
+/** ✅ status VALUE (string union) */
 export type LeadStage = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
 
-/** Status rows from lead_statuses table */
+/** ✅ status TABLE row (lead_statuses) */
 export type LeadStatus = {
   id: string;
-  label: LeadStage; // keep labels matching LeadStage
+  label: LeadStage;
   position: number | null;
   color: string | null;
 };
@@ -28,7 +28,9 @@ export type Lead = {
   source: string | null;
   notes: string | null;
 
+  /** ✅ IMPORTANT: Lead status is string union now */
   status: LeadStage;
+
   assigned_to: string | null;
   follow_up_at: string | null;
   created_at: string;
@@ -54,7 +56,11 @@ function errMsg(e: unknown) {
   return e instanceof Error ? e.message : "Unknown error";
 }
 
-/** Your Supabase screenshot shows profiles table with role=agent/admin */
+/**
+ * ✅ IMPORTANT:
+ * Supabase screenshot me table "profiles" hai (agents nahi).
+ * Is liye yahan profiles se agents nikal rahe hain.
+ */
 export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
   try {
     const supabase = await supabaseServer();
@@ -127,7 +133,10 @@ export async function assignLeadAction(args: { id: string; assigned_to: string |
   try {
     const supabase = await supabaseServer();
 
-    const { error } = await supabase.from("leads").update({ assigned_to: args.assigned_to }).eq("id", args.id);
+    const { error } = await supabase
+      .from("leads")
+      .update({ assigned_to: args.assigned_to })
+      .eq("id", args.id);
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: true };
