@@ -2,16 +2,14 @@
 
 import { supabaseServer } from "@/lib/supabase/server";
 
-/** Lead stage labels (stored in leads.status) */
-export type LeadStage = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
+export type LeadStatus = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
 
-/** Rows from lead_statuses table */
-export type LeadStatus = {
-  id: string;
-  label: LeadStage;
-  position: number | null;
-  color: string | null;
-};
+/**
+ * Backwards compatibility:
+ * Kuch files me LeadStage use ho raha tha.
+ * Isko LeadStatus ka alias bana diya so build kabhi na toote.
+ */
+export type LeadStage = LeadStatus;
 
 export type Agent = {
   id: string;
@@ -28,7 +26,7 @@ export type Lead = {
   source: string | null;
   notes: string | null;
 
-  status: LeadStage;
+  status: LeadStatus;
   assigned_to: string | null;
   follow_up_at: string | null;
   created_at: string;
@@ -45,9 +43,6 @@ export type Lead = {
   budget: number | null;
   airline: string | null;
   cabin: string | null;
-
-  /** optional (LeadCard uses it if present) */
-  priority?: string | null;
 };
 
 type Ok<T> = { ok: true; data: T };
@@ -84,7 +79,7 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
       source: payload.source ?? null,
       notes: payload.notes ?? null,
 
-      status: (payload.status ?? "New") as LeadStage,
+      status: (payload.status ?? "New") as LeadStatus,
       assigned_to: payload.assigned_to ?? null,
       follow_up_at: payload.follow_up_at ?? null,
 
@@ -100,11 +95,13 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
       budget: payload.budget ?? null,
       airline: payload.airline ?? null,
       cabin: payload.cabin ?? null,
-
-      priority: (payload as any).priority ?? null,
     };
 
-    const { data, error } = await supabase.from("leads").insert(insertRow).select("*").single();
+    const { data, error } = await supabase
+      .from("leads")
+      .insert(insertRow)
+      .select("*")
+      .single();
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: data as Lead };
@@ -113,11 +110,14 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
   }
 }
 
-export async function moveLeadAction(args: { id: string; status: LeadStage }): Promise<Ok<true> | Fail> {
+export async function moveLeadAction(args: { id: string; status: LeadStatus }): Promise<Ok<true> | Fail> {
   try {
     const supabase = await supabaseServer();
 
-    const { error } = await supabase.from("leads").update({ status: args.status }).eq("id", args.id);
+    const { error } = await supabase
+      .from("leads")
+      .update({ status: args.status })
+      .eq("id", args.id);
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: true };
@@ -130,7 +130,10 @@ export async function assignLeadAction(args: { id: string; assigned_to: string |
   try {
     const supabase = await supabaseServer();
 
-    const { error } = await supabase.from("leads").update({ assigned_to: args.assigned_to }).eq("id", args.id);
+    const { error } = await supabase
+      .from("leads")
+      .update({ assigned_to: args.assigned_to })
+      .eq("id", args.id);
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: true };
