@@ -2,11 +2,13 @@
 
 import { supabaseServer } from "@/lib/supabase/server";
 
-export type LeadStatus = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
+/** Lead stage saved on leads.status (text) */
+export type LeadStage = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
 
-export type LeadStatusRow = {
+/** Status rows from lead_statuses table */
+export type LeadStatus = {
   id: string;
-  label: string;
+  label: LeadStage; // keep labels matching LeadStage
   position: number | null;
   color: string | null;
 };
@@ -26,7 +28,7 @@ export type Lead = {
   source: string | null;
   notes: string | null;
 
-  status: LeadStatus;
+  status: LeadStage;
   assigned_to: string | null;
   follow_up_at: string | null;
   created_at: string;
@@ -45,33 +47,26 @@ export type Lead = {
   cabin: string | null;
 };
 
-type Ok<T> = { ok: true; data: T };
-type Fail = { ok: false; error: string };
+export type Ok<T> = { ok: true; data: T };
+export type Fail = { ok: false; error: string };
 
 function errMsg(e: unknown) {
   return e instanceof Error ? e.message : "Unknown error";
 }
 
+/** Your Supabase screenshot shows profiles table with role=agent/admin */
 export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
   try {
     const supabase = await supabaseServer();
 
-    // agents are stored in profiles (per your Supabase screenshot)
     const { data, error } = await supabase
       .from("profiles")
-      .select("id,full_name")
+      .select("id,full_name,email")
       .eq("role", "agent")
       .order("created_at", { ascending: true });
 
     if (error) return { ok: false, error: error.message };
-
-    const mapped: Agent[] = (data ?? []).map((r: any) => ({
-      id: r.id,
-      full_name: r.full_name ?? null,
-      email: null,
-    }));
-
-    return { ok: true, data: mapped };
+    return { ok: true, data: (data ?? []) as Agent[] };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
   }
@@ -88,7 +83,7 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
       source: payload.source ?? null,
       notes: payload.notes ?? null,
 
-      status: (payload.status ?? "New") as LeadStatus,
+      status: (payload.status ?? "New") as LeadStage,
       assigned_to: payload.assigned_to ?? null,
       follow_up_at: payload.follow_up_at ?? null,
 
@@ -115,7 +110,7 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
   }
 }
 
-export async function moveLeadAction(args: { id: string; status: LeadStatus }): Promise<Ok<true> | Fail> {
+export async function moveLeadAction(args: { id: string; status: LeadStage }): Promise<Ok<true> | Fail> {
   try {
     const supabase = await supabaseServer();
 
@@ -132,10 +127,7 @@ export async function assignLeadAction(args: { id: string; assigned_to: string |
   try {
     const supabase = await supabaseServer();
 
-    const { error } = await supabase
-      .from("leads")
-      .update({ assigned_to: args.assigned_to })
-      .eq("id", args.id);
+    const { error } = await supabase.from("leads").update({ assigned_to: args.assigned_to }).eq("id", args.id);
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: true };
