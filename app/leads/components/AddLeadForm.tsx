@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { createLeadAction, type Lead, type LeadStage } from "../actions";
+import { createLeadAction, type Lead, type LeadStatus } from "../actions";
 
-const STAGES: LeadStage[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
+const STATUSES: LeadStatus[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
 
 function toNum(v: string) {
   const n = Number(v);
@@ -23,7 +23,7 @@ export default function AddLeadForm({ onDone }: { onDone?: () => void }) {
   const [source, setSource] = useState("");
   const [notes, setNotes] = useState("");
 
-  const [status, setStatus] = useState<LeadStage>("New");
+  const [status, setStatus] = useState<LeadStatus>("New");
 
   const [departure, setDeparture] = useState("");
   const [destination, setDestination] = useState("");
@@ -84,8 +84,12 @@ export default function AddLeadForm({ onDone }: { onDone?: () => void }) {
         <input className="w-full rounded-xl border px-3 py-2" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <input className="w-full rounded-xl border px-3 py-2" placeholder="Source (FB, WA, Call...)" value={source} onChange={(e) => setSource(e.target.value)} />
 
-        <select className="w-full rounded-xl border px-3 py-2" value={status} onChange={(e) => setStatus(e.target.value as LeadStage)}>
-          {STAGES.map((s) => (
+        <select
+          className="w-full rounded-xl border px-3 py-2"
+          value={status}
+          onChange={(e) => setStatus(e.target.value as LeadStatus)}
+        >
+          {STATUSES.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
