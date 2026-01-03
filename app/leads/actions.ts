@@ -2,10 +2,10 @@
 
 import { supabaseServer } from "@/lib/supabase/server";
 
-/** These are the only allowed pipeline stages stored on the lead row */
+/** Lead stage labels (stored in leads.status) */
 export type LeadStage = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
 
-/** Row coming from lead_statuses table */
+/** Rows from lead_statuses table */
 export type LeadStatus = {
   id: string;
   label: LeadStage;
@@ -16,7 +16,7 @@ export type LeadStatus = {
 export type Agent = {
   id: string;
   full_name: string | null;
-  email?: string | null; // optional (your profiles table may not have email)
+  email: string | null;
 };
 
 export type Lead = {
@@ -45,6 +45,9 @@ export type Lead = {
   budget: number | null;
   airline: string | null;
   cabin: string | null;
+
+  /** optional (LeadCard uses it if present) */
+  priority?: string | null;
 };
 
 type Ok<T> = { ok: true; data: T };
@@ -54,29 +57,17 @@ function errMsg(e: unknown) {
   return e instanceof Error ? e.message : "Unknown error";
 }
 
-/**
- * Agents come from profiles table (based on your Supabase screenshot)
- * columns visible: id, full_name, role, created_at
- */
 export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
   try {
     const supabase = await supabaseServer();
 
     const { data, error } = await supabase
-      .from("profiles")
-      .select("id,full_name")
-      .eq("role", "agent")
+      .from("agents")
+      .select("id,full_name,email")
       .order("created_at", { ascending: true });
 
     if (error) return { ok: false, error: error.message };
-
-    const agents: Agent[] = (data ?? []).map((r: any) => ({
-      id: r.id,
-      full_name: r.full_name ?? null,
-      email: null,
-    }));
-
-    return { ok: true, data: agents };
+    return { ok: true, data: (data ?? []) as Agent[] };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
   }
@@ -109,13 +100,11 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
       budget: payload.budget ?? null,
       airline: payload.airline ?? null,
       cabin: payload.cabin ?? null,
+
+      priority: (payload as any).priority ?? null,
     };
 
-    const { data, error } = await supabase
-      .from("leads")
-      .insert(insertRow)
-      .select("*")
-      .single();
+    const { data, error } = await supabase.from("leads").insert(insertRow).select("*").single();
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: data as Lead };
@@ -128,10 +117,7 @@ export async function moveLeadAction(args: { id: string; status: LeadStage }): P
   try {
     const supabase = await supabaseServer();
 
-    const { error } = await supabase
-      .from("leads")
-      .update({ status: args.status })
-      .eq("id", args.id);
+    const { error } = await supabase.from("leads").update({ status: args.status }).eq("id", args.id);
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: true };
@@ -144,10 +130,7 @@ export async function assignLeadAction(args: { id: string; assigned_to: string |
   try {
     const supabase = await supabaseServer();
 
-    const { error } = await supabase
-      .from("leads")
-      .update({ assigned_to: args.assigned_to })
-      .eq("id", args.id);
+    const { error } = await supabase.from("leads").update({ assigned_to: args.assigned_to }).eq("id", args.id);
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: true };
