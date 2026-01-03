@@ -2,10 +2,10 @@
 
 import { supabaseServer } from "@/lib/supabase/server";
 
-/** ✅ status VALUE (string union) */
+/** These are the only allowed pipeline stages stored on the lead row */
 export type LeadStage = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
 
-/** ✅ status TABLE row (lead_statuses) */
+/** Row coming from lead_statuses table */
 export type LeadStatus = {
   id: string;
   label: LeadStage;
@@ -16,7 +16,7 @@ export type LeadStatus = {
 export type Agent = {
   id: string;
   full_name: string | null;
-  email: string | null;
+  email?: string | null; // optional (your profiles table may not have email)
 };
 
 export type Lead = {
@@ -28,9 +28,7 @@ export type Lead = {
   source: string | null;
   notes: string | null;
 
-  /** ✅ IMPORTANT: Lead status is string union now */
   status: LeadStage;
-
   assigned_to: string | null;
   follow_up_at: string | null;
   created_at: string;
@@ -49,17 +47,16 @@ export type Lead = {
   cabin: string | null;
 };
 
-export type Ok<T> = { ok: true; data: T };
-export type Fail = { ok: false; error: string };
+type Ok<T> = { ok: true; data: T };
+type Fail = { ok: false; error: string };
 
 function errMsg(e: unknown) {
   return e instanceof Error ? e.message : "Unknown error";
 }
 
 /**
- * ✅ IMPORTANT:
- * Supabase screenshot me table "profiles" hai (agents nahi).
- * Is liye yahan profiles se agents nikal rahe hain.
+ * Agents come from profiles table (based on your Supabase screenshot)
+ * columns visible: id, full_name, role, created_at
  */
 export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
   try {
@@ -67,12 +64,19 @@ export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("id,full_name,email")
+      .select("id,full_name")
       .eq("role", "agent")
       .order("created_at", { ascending: true });
 
     if (error) return { ok: false, error: error.message };
-    return { ok: true, data: (data ?? []) as Agent[] };
+
+    const agents: Agent[] = (data ?? []).map((r: any) => ({
+      id: r.id,
+      full_name: r.full_name ?? null,
+      email: null,
+    }));
+
+    return { ok: true, data: agents };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
   }
@@ -107,7 +111,11 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
       cabin: payload.cabin ?? null,
     };
 
-    const { data, error } = await supabase.from("leads").insert(insertRow).select("*").single();
+    const { data, error } = await supabase
+      .from("leads")
+      .insert(insertRow)
+      .select("*")
+      .single();
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: data as Lead };
@@ -120,7 +128,10 @@ export async function moveLeadAction(args: { id: string; status: LeadStage }): P
   try {
     const supabase = await supabaseServer();
 
-    const { error } = await supabase.from("leads").update({ status: args.status }).eq("id", args.id);
+    const { error } = await supabase
+      .from("leads")
+      .update({ status: args.status })
+      .eq("id", args.id);
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: true };
