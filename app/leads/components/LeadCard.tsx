@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import type { Agent, Lead, LeadStatus } from "../actions";
 
 type Props = {
@@ -38,6 +39,7 @@ export default function LeadCard({
   onAction,
   dragHandleProps,
 }: Props) {
+  const router = useRouter();
   const actionBtnRef = useRef<HTMLButtonElement | null>(null);
 
   const title = useMemo(() => {
@@ -59,7 +61,22 @@ export default function LeadCard({
   }, [agents]);
 
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm" onClick={() => onView?.(lead)}>
+    <div
+      className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm hover:border-zinc-300"
+      role="button"
+      tabIndex={0}
+      onClick={() => {
+        if (onView) return onView(lead);
+        router.push(`/leads/${lead.id}`);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          if (onView) return onView(lead);
+          router.push(`/leads/${lead.id}`);
+        }
+      }}
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-zinc-900">{title}</div>
