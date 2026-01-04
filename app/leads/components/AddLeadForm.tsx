@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   createLeadAction,
-  listAgentsAction,
-  listBrandsAction,
-  type Agent,
-  type Brand,
   type Lead,
   type LeadStatus,
+  type Agent,
+  type Brand,
 } from "../actions";
 
 const STATUSES: LeadStatus[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
@@ -22,14 +20,17 @@ function clean(v?: string) {
   return (v ?? "").trim();
 }
 
-export default function AddLeadForm({ onDone }: { onDone?: () => void }) {
+export default function AddLeadForm({
+  onDone,
+  agents = [],
+  brands = [],
+}: {
+  onDone?: () => void;
+  agents?: Agent[];
+  brands?: Brand[];
+}) {
   const [pending, startTransition] = useTransition();
 
-  // dropdown data
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [brands, setBrands] = useState<Brand[]>([]);
-
-  // form fields
   const [full_name, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -38,7 +39,7 @@ export default function AddLeadForm({ onDone }: { onDone?: () => void }) {
 
   const [status, setStatus] = useState<LeadStatus>("New");
 
-  // ✅ new fields (assignment / brand)
+  // ✅ NEW: assignment fields
   const [agent_id, setAgentId] = useState<string>("");
   const [brand_id, setBrandId] = useState<string>("");
 
@@ -55,24 +56,8 @@ export default function AddLeadForm({ onDone }: { onDone?: () => void }) {
   const [airline, setAirline] = useState("");
   const [cabin, setCabin] = useState("");
 
-  // load agents + brands
-  useEffect(() => {
-    (async () => {
-      const a = await listAgentsAction();
-      if (a.ok) setAgents(a.data ?? []);
-      // else ignore for now; UI will still work with manual unassigned
-
-      const b = await listBrandsAction();
-      if (b.ok) setBrands(b.data ?? []);
-    })();
-  }, []);
-
   const canSubmit = useMemo(() => {
-    return (
-      clean(phone).length > 0 ||
-      clean(full_name).length > 0 ||
-      clean(email).length > 0
-    );
+    return clean(phone).length > 0 || clean(full_name).length > 0 || clean(email).length > 0;
   }, [phone, full_name, email]);
 
   function submit() {
@@ -87,7 +72,7 @@ export default function AddLeadForm({ onDone }: { onDone?: () => void }) {
 
       status,
 
-      // ✅ assign + brand
+      // ✅ send assignment
       agent_id: agent_id || null,
       brand_id: brand_id || null,
 
@@ -114,7 +99,6 @@ export default function AddLeadForm({ onDone }: { onDone?: () => void }) {
 
   return (
     <div className="space-y-4">
-      {/* top row */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <input
           className="w-full rounded-xl border px-3 py-2"
@@ -161,13 +145,13 @@ export default function AddLeadForm({ onDone }: { onDone?: () => void }) {
           onChange={(e) => setCabin(e.target.value)}
         />
 
-        {/* ✅ Agent assign */}
+        {/* ✅ NEW: Agent assignment */}
         <select
           className="w-full rounded-xl border px-3 py-2"
           value={agent_id}
           onChange={(e) => setAgentId(e.target.value)}
         >
-          <option value="">Assign Agent (Optional)</option>
+          <option value="">Assign agent (optional)</option>
           {agents.map((a) => (
             <option key={a.id} value={a.id}>
               {a.full_name ?? a.email ?? a.id}
@@ -175,13 +159,13 @@ export default function AddLeadForm({ onDone }: { onDone?: () => void }) {
           ))}
         </select>
 
-        {/* ✅ Brand */}
+        {/* ✅ NEW: Brand selection */}
         <select
           className="w-full rounded-xl border px-3 py-2"
           value={brand_id}
           onChange={(e) => setBrandId(e.target.value)}
         >
-          <option value="">Select Brand (Optional)</option>
+          <option value="">Select brand (optional)</option>
           {brands.map((b) => (
             <option key={b.id} value={b.id}>
               {b.name}
@@ -197,66 +181,20 @@ export default function AddLeadForm({ onDone }: { onDone?: () => void }) {
         onChange={(e) => setNotes(e.target.value)}
       />
 
-      {/* trip fields */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Departure"
-          value={departure}
-          onChange={(e) => setDeparture(e.target.value)}
-        />
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Destination"
-          value={destination}
-          onChange={(e) => setDestination(e.target.value)}
-        />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Departure" value={departure} onChange={(e) => setDeparture(e.target.value)} />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Destination" value={destination} onChange={(e) => setDestination(e.target.value)} />
 
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Travel date (YYYY-MM-DD)"
-          value={travel_date}
-          onChange={(e) => setTravelDate(e.target.value)}
-        />
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Return date (YYYY-MM-DD)"
-          value={return_date}
-          onChange={(e) => setReturnDate(e.target.value)}
-        />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Travel date (YYYY-MM-DD)" value={travel_date} onChange={(e) => setTravelDate(e.target.value)} />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Return date (YYYY-MM-DD)" value={return_date} onChange={(e) => setReturnDate(e.target.value)} />
 
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Adults"
-          value={pax_adults}
-          onChange={(e) => setAdults(e.target.value)}
-        />
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Children"
-          value={pax_children}
-          onChange={(e) => setChildren(e.target.value)}
-        />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Adults" value={pax_adults} onChange={(e) => setAdults(e.target.value)} />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Children" value={pax_children} onChange={(e) => setChildren(e.target.value)} />
 
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Infants"
-          value={pax_infants}
-          onChange={(e) => setInfants(e.target.value)}
-        />
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Budget"
-          value={budget}
-          onChange={(e) => setBudget(e.target.value)}
-        />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Infants" value={pax_infants} onChange={(e) => setInfants(e.target.value)} />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Budget" value={budget} onChange={(e) => setBudget(e.target.value)} />
 
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Preferred airline"
-          value={airline}
-          onChange={(e) => setAirline(e.target.value)}
-        />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Preferred airline" value={airline} onChange={(e) => setAirline(e.target.value)} />
       </div>
 
       <button
