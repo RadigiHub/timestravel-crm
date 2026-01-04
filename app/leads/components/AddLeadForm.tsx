@@ -16,9 +16,11 @@ function clean(v?: string) {
 
 function agentLabel(a: Agent) {
   const name = (a.full_name ?? "").trim();
-  const email = (a.email ?? "").trim();
   if (name) return name;
-  if (email) return email;
+
+  const email = (a.email ?? "").trim();
+  if (email) return email.split("@")[0] || email;
+
   return `Agent ${a.id.slice(0, 8)}`;
 }
 
@@ -97,10 +99,21 @@ export default function AddLeadForm({
     });
   }
 
+  const sortedAgents = useMemo(() => {
+    const copy = [...agents];
+    copy.sort((a, b) => agentLabel(a).localeCompare(agentLabel(b)));
+    return copy;
+  }, [agents]);
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <input className="w-full rounded-xl border px-3 py-2" placeholder="Full name" value={full_name} onChange={(e) => setFullName(e.target.value)} />
+        <input
+          className="w-full rounded-xl border px-3 py-2"
+          placeholder="Full name"
+          value={full_name}
+          onChange={(e) => setFullName(e.target.value)}
+        />
         <input className="w-full rounded-xl border px-3 py-2" placeholder="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
 
         <input className="w-full rounded-xl border px-3 py-2" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -116,17 +129,17 @@ export default function AddLeadForm({
 
         <input className="w-full rounded-xl border px-3 py-2" placeholder="Cabin (Economy/Business)" value={cabin} onChange={(e) => setCabin(e.target.value)} />
 
-        {/* Agent */}
+        {/* ✅ Agent */}
         <select className="w-full rounded-xl border px-3 py-2" value={agent_id} onChange={(e) => setAgentId(e.target.value)}>
           <option value="">Assign agent (optional)</option>
-          {agents.map((a) => (
+          {sortedAgents.map((a) => (
             <option key={a.id} value={a.id}>
               {agentLabel(a)}
             </option>
           ))}
         </select>
 
-        {/* Brand */}
+        {/* ✅ Brand */}
         <select className="w-full rounded-xl border px-3 py-2" value={brand_id} onChange={(e) => setBrandId(e.target.value)}>
           <option value="">Select brand (optional)</option>
           {brands.map((b) => (
