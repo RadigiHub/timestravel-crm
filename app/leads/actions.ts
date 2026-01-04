@@ -30,7 +30,7 @@ export type Lead = {
 
   status: LeadStatus;
 
-  // ✅ new canonical fields
+  // ✅ canonical fields
   agent_id: string | null;
   brand_id: string | null;
 
@@ -58,19 +58,52 @@ function errMsg(e: unknown) {
   return e instanceof Error ? e.message : "Unknown error";
 }
 
+function shortId(id?: string | null) {
+  if (!id) return "";
+  return id.slice(0, 8);
+}
+
+function fallbackNameFromEmail(email?: string | null) {
+  if (!email) return null;
+  const left = email.split("@")[0]?.trim();
+  return left ? left : null;
+}
+
+function normalizeAgent(a: any): Agent {
+  const id = String(a?.id ?? "");
+  const email = a?.email ?? null;
+  const full_name =
+    (a?.full_name && String(a.full_name).trim()) ||
+    fallbackNameFromEmail(email) ||
+    `Agent ${shortId(id)}`;
+
+  return {
+    id,
+    email,
+    role: a?.role ?? null,
+    full_name,
+  };
+}
+
 export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
   try {
     const supabase = await supabaseServer();
 
     // ✅ agents = profiles table (role = agent)
+    // IMPORTANT: also fetch email so we can build fallback label
     const { data, error } = await supabase
       .from("profiles")
-      .select("id,full_name,role")
-      .eq("role", "agent")
-      .order("full_name", { ascending: true });
+      .select("id,full_name,email,role")
+      .eq("role", "agent");
 
     if (error) return { ok: false, error: error.message };
-    return { ok: true, data: (data ?? []) as Agent[] };
+
+    const normalized = (data ?? []).map(normalizeAgent);
+
+    // sort by label
+    normalized.sort((a, b) => (a.full_name ?? "").localeCompare(b.full_name ?? ""));
+
+    return { ok: true, data: normalized };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
   }
