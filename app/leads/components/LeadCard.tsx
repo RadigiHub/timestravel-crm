@@ -10,9 +10,9 @@ type Props = {
   agents?: Agent[];
   disabled?: boolean;
   onMove?: (id: string, status: LeadStatus) => void | Promise<void>;
-  onAssign?: (id: string, assigned_to: string | null) => void | Promise<void>;
+  onAssign?: (id: string, agent_id: string | null) => void | Promise<void>;
 
-  // Old flow (SortableLeadCard.tsx) props
+  // Old flow (SortableLeadCard.tsx) props (optional)
   onView?: (lead: Lead) => void;
   onAction?: (lead: Lead, anchor: HTMLButtonElement) => void;
   dragHandleProps?: any;
@@ -56,7 +56,7 @@ export default function LeadCard({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Drag handle support (for SortableLeadCard) */}
+          {/* Drag handle (optional) */}
           <span
             {...(dragHandleProps ?? {})}
             className="cursor-grab select-none rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-600 active:cursor-grabbing"
@@ -66,12 +66,9 @@ export default function LeadCard({
             ⋮⋮
           </span>
 
-          {/* Actions button support (for SortableLeadCard menu) */}
+          {/* Actions menu button (optional) */}
           <button
-            ref={(el) => {
-  actionBtnRef.current = el;
-}}
-
+            ref={actionBtnRef}
             className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
             onClick={(e) => {
               e.stopPropagation();
@@ -85,7 +82,7 @@ export default function LeadCard({
         </div>
       </div>
 
-      {/* New flow controls (only render if handlers exist) */}
+      {/* ✅ Controls */}
       {(onMove || onAssign) && (
         <div className="mt-3 grid grid-cols-1 gap-2">
           {onMove && (
@@ -104,10 +101,11 @@ export default function LeadCard({
             </select>
           )}
 
+          {/* ✅ IMPORTANT: DB field is agent_id */}
           {onAssign && (
             <select
               className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              value={lead.assigned_to ?? ""}
+              value={lead.agent_id ?? ""}
               onChange={(e) => onAssign(lead.id, e.target.value || null)}
               disabled={disabled}
               onClick={(e) => e.stopPropagation()}
