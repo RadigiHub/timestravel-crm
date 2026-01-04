@@ -6,19 +6,25 @@ import type { Agent, Lead, LeadStatus } from "../actions";
 type Props = {
   lead: Lead;
 
-  // New flow (Column.tsx) props
   agents?: Agent[];
   disabled?: boolean;
   onMove?: (id: string, status: LeadStatus) => void | Promise<void>;
   onAssign?: (id: string, agent_id: string | null) => void | Promise<void>;
 
-  // Old flow (SortableLeadCard.tsx) props (optional)
   onView?: (lead: Lead) => void;
   onAction?: (lead: Lead, anchor: HTMLButtonElement) => void;
   dragHandleProps?: any;
 };
 
 const STATUSES: LeadStatus[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
+
+function agentLabel(a: Agent) {
+  const n = (a.full_name ?? "").trim();
+  if (n) return n;
+  const e = ((a as any).email ?? "").trim();
+  if (e) return e;
+  return `Agent ${String(a.id).slice(0, 8)}`;
+}
 
 export default function LeadCard({
   lead,
@@ -45,10 +51,7 @@ export default function LeadCard({
   }, [lead.phone, lead.email, lead.source]);
 
   return (
-    <div
-      className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm"
-      onClick={() => onView?.(lead)}
-    >
+    <div className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm" onClick={() => onView?.(lead)}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-zinc-900">{title}</div>
@@ -56,7 +59,6 @@ export default function LeadCard({
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Drag handle (optional) */}
           <span
             {...(dragHandleProps ?? {})}
             className="cursor-grab select-none rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-600 active:cursor-grabbing"
@@ -66,7 +68,6 @@ export default function LeadCard({
             ⋮⋮
           </span>
 
-          {/* Actions menu button (optional) */}
           <button
             ref={actionBtnRef}
             className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50"
@@ -82,7 +83,6 @@ export default function LeadCard({
         </div>
       </div>
 
-      {/* ✅ Controls */}
       {(onMove || onAssign) && (
         <div className="mt-3 grid grid-cols-1 gap-2">
           {onMove && (
@@ -101,7 +101,6 @@ export default function LeadCard({
             </select>
           )}
 
-          {/* ✅ IMPORTANT: DB field is agent_id */}
           {onAssign && (
             <select
               className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
@@ -113,7 +112,7 @@ export default function LeadCard({
               <option value="">Unassigned</option>
               {agents.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.full_name ?? a.email ?? a.id}
+                  {agentLabel(a)}
                 </option>
               ))}
             </select>
@@ -121,9 +120,7 @@ export default function LeadCard({
         </div>
       )}
 
-      {lead.notes ? (
-        <div className="mt-2 line-clamp-2 text-xs text-zinc-600">{lead.notes}</div>
-      ) : null}
+      {lead.notes ? <div className="mt-2 line-clamp-2 text-xs text-zinc-600">{lead.notes}</div> : null}
     </div>
   );
 }
