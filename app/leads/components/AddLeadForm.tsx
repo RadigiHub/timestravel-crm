@@ -1,13 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import {
-  createLeadAction,
-  type Lead,
-  type LeadStatus,
-  type Agent,
-  type Brand,
-} from "../actions";
+import { createLeadAction, type Agent, type Brand, type Lead, type LeadStatus } from "../actions";
 
 const STATUSES: LeadStatus[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
 
@@ -39,7 +33,6 @@ export default function AddLeadForm({
 
   const [status, setStatus] = useState<LeadStatus>("New");
 
-  // ✅ NEW: assignment fields
   const [agent_id, setAgentId] = useState<string>("");
   const [brand_id, setBrandId] = useState<string>("");
 
@@ -72,7 +65,6 @@ export default function AddLeadForm({
 
       status,
 
-      // ✅ send assignment
       agent_id: agent_id || null,
       brand_id: brand_id || null,
 
@@ -100,37 +92,13 @@ export default function AddLeadForm({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Full name"
-          value={full_name}
-          onChange={(e) => setFullName(e.target.value)}
-        />
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Phone"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-        />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Full name" value={full_name} onChange={(e) => setFullName(e.target.value)} />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
 
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Source (FB, WA, Call...)"
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-        />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Source (FB, WA, Call...)" value={source} onChange={(e) => setSource(e.target.value)} />
 
-        <select
-          className="w-full rounded-xl border px-3 py-2"
-          value={status}
-          onChange={(e) => setStatus(e.target.value as LeadStatus)}
-        >
+        <select className="w-full rounded-xl border px-3 py-2" value={status} onChange={(e) => setStatus(e.target.value as LeadStatus)}>
           {STATUSES.map((s) => (
             <option key={s} value={s}>
               {s}
@@ -138,19 +106,10 @@ export default function AddLeadForm({
           ))}
         </select>
 
-        <input
-          className="w-full rounded-xl border px-3 py-2"
-          placeholder="Cabin (Economy/Business)"
-          value={cabin}
-          onChange={(e) => setCabin(e.target.value)}
-        />
+        <input className="w-full rounded-xl border px-3 py-2" placeholder="Cabin (Economy/Business)" value={cabin} onChange={(e) => setCabin(e.target.value)} />
 
-        {/* ✅ NEW: Agent assignment */}
-        <select
-          className="w-full rounded-xl border px-3 py-2"
-          value={agent_id}
-          onChange={(e) => setAgentId(e.target.value)}
-        >
+        {/* ✅ Agent */}
+        <select className="w-full rounded-xl border px-3 py-2" value={agent_id} onChange={(e) => setAgentId(e.target.value)}>
           <option value="">Assign agent (optional)</option>
           {agents.map((a) => (
             <option key={a.id} value={a.id}>
@@ -159,12 +118,8 @@ export default function AddLeadForm({
           ))}
         </select>
 
-        {/* ✅ NEW: Brand selection */}
-        <select
-          className="w-full rounded-xl border px-3 py-2"
-          value={brand_id}
-          onChange={(e) => setBrandId(e.target.value)}
-        >
+        {/* ✅ Brand */}
+        <select className="w-full rounded-xl border px-3 py-2" value={brand_id} onChange={(e) => setBrandId(e.target.value)}>
           <option value="">Select brand (optional)</option>
           {brands.map((b) => (
             <option key={b.id} value={b.id}>
@@ -174,12 +129,7 @@ export default function AddLeadForm({
         </select>
       </div>
 
-      <textarea
-        className="w-full rounded-xl border px-3 py-2"
-        placeholder="Notes"
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-      />
+      <textarea className="w-full rounded-xl border px-3 py-2" placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <input className="w-full rounded-xl border px-3 py-2" placeholder="Departure" value={departure} onChange={(e) => setDeparture(e.target.value)} />
