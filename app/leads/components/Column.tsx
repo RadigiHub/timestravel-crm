@@ -15,7 +15,7 @@ export default function Column({
   leads: Lead[];
   agents: Agent[];
   onMove: (id: string, status: LeadStatus) => void | Promise<void>;
-  onAssign: (id: string, assigned_to: string | null) => void | Promise<void>;
+  onAssign: (id: string, agent_id: string | null) => void | Promise<void>;
   disabled: boolean;
 }) {
   return (
