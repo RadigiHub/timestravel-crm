@@ -10,7 +10,8 @@ export type LeadStage = LeadStatus;
 export type Agent = {
   id: string;
   full_name: string | null;
-  email: string | null;
+  email?: string | null;
+  role?: string | null;
 };
 
 export type Brand = {
@@ -29,7 +30,7 @@ export type Lead = {
 
   status: LeadStatus;
 
-  // ✅ DB-driven assignment fields
+  // ✅ new canonical fields
   agent_id: string | null;
   brand_id: string | null;
 
@@ -57,38 +58,16 @@ function errMsg(e: unknown) {
   return e instanceof Error ? e.message : "Unknown error";
 }
 
-function clean(v?: string | null) {
-  return (v ?? "").trim();
-}
-
-/** ✅ Your leads.status_id values shown in Supabase are like: new, contacted ... */
-function statusToStatusId(s: LeadStatus): string {
-  switch (s) {
-    case "New":
-      return "new";
-    case "Contacted":
-      return "contacted";
-    case "Follow-Up":
-      return "follow-up"; // if your DB uses "followup" instead, change here
-    case "Booked":
-      return "booked";
-    case "Lost":
-      return "lost";
-    default:
-      return "new";
-  }
-}
-
 export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
   try {
     const supabase = await supabaseServer();
 
-    // ✅ Agents live in public.profiles (role = agent)
+    // ✅ agents = profiles table (role = agent)
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, full_name, email")
+      .select("id,full_name,role")
       .eq("role", "agent")
-      .order("created_at", { ascending: true });
+      .order("full_name", { ascending: true });
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: (data ?? []) as Agent[] };
@@ -103,7 +82,7 @@ export async function listBrandsAction(): Promise<Ok<Brand[]> | Fail> {
 
     const { data, error } = await supabase
       .from("brands")
-      .select("id, name")
+      .select("id,name")
       .order("name", { ascending: true });
 
     if (error) return { ok: false, error: error.message };
@@ -117,28 +96,20 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
   try {
     const supabase = await supabaseServer();
 
-    const status = (payload.status ?? "New") as LeadStatus;
-
-    // ✅ lead.full_name is NOT NULL in DB, so ensure something always exists
-    const safeName =
-      clean(payload.full_name) ||
-      clean(payload.phone) ||
-      clean(payload.email) ||
-      "Unnamed lead";
-
     const insertRow: any = {
-      full_name: safeName,
+      full_name: payload.full_name ?? null,
       phone: payload.phone ?? null,
       email: payload.email ?? null,
       source: payload.source ?? null,
       notes: payload.notes ?? null,
 
-      // ✅ store both (your app uses status text right now)
-      status,
-      status_id: statusToStatusId(status),
+      status: (payload.status ?? "New") as LeadStatus,
 
+      // ✅ agent/brand
       agent_id: payload.agent_id ?? null,
       brand_id: payload.brand_id ?? null,
+
+      follow_up_at: payload.follow_up_at ?? null,
 
       departure: payload.departure ?? null,
       destination: payload.destination ?? null,
@@ -154,7 +125,11 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
       cabin: payload.cabin ?? null,
     };
 
-    const { data, error } = await supabase.from("leads").insert(insertRow).select("*").single();
+    const { data, error } = await supabase
+      .from("leads")
+      .insert(insertRow)
+      .select("*")
+      .single();
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: data as Lead };
@@ -167,13 +142,7 @@ export async function moveLeadAction(args: { id: string; status: LeadStatus }): 
   try {
     const supabase = await supabaseServer();
 
-    const { error } = await supabase
-      .from("leads")
-      .update({
-        status: args.status,
-        status_id: statusToStatusId(args.status),
-      })
-      .eq("id", args.id);
+    const { error } = await supabase.from("leads").update({ status: args.status }).eq("id", args.id);
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: true };
@@ -186,10 +155,7 @@ export async function assignLeadAction(args: { id: string; agent_id: string | nu
   try {
     const supabase = await supabaseServer();
 
-    const { error } = await supabase
-      .from("leads")
-      .update({ agent_id: args.agent_id })
-      .eq("id", args.id);
+    const { error } = await supabase.from("leads").update({ agent_id: args.agent_id }).eq("id", args.id);
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: true };
