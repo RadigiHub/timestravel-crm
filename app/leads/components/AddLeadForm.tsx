@@ -15,12 +15,11 @@ function clean(v?: string) {
 }
 
 function agentLabel(a: Agent) {
-  const n = (a.full_name ?? "").trim();
-  if (n) return n;
-  // email optional (may not exist in data)
-  const e = ((a as any).email ?? "").trim();
-  if (e) return e;
-  return `Agent ${String(a.id).slice(0, 8)}`;
+  const name = (a.full_name ?? "").trim();
+  const email = (a.email ?? "").trim();
+  if (name) return name;
+  if (email) return email;
+  return `Agent ${a.id.slice(0, 8)}`;
 }
 
 export default function AddLeadForm({
@@ -117,7 +116,7 @@ export default function AddLeadForm({
 
         <input className="w-full rounded-xl border px-3 py-2" placeholder="Cabin (Economy/Business)" value={cabin} onChange={(e) => setCabin(e.target.value)} />
 
-        {/* ✅ Agent */}
+        {/* Agent */}
         <select className="w-full rounded-xl border px-3 py-2" value={agent_id} onChange={(e) => setAgentId(e.target.value)}>
           <option value="">Assign agent (optional)</option>
           {agents.map((a) => (
@@ -127,7 +126,7 @@ export default function AddLeadForm({
           ))}
         </select>
 
-        {/* ✅ Brand */}
+        {/* Brand */}
         <select className="w-full rounded-xl border px-3 py-2" value={brand_id} onChange={(e) => setBrandId(e.target.value)}>
           <option value="">Select brand (optional)</option>
           {brands.map((b) => (
