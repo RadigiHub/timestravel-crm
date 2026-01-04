@@ -67,15 +67,19 @@ export default async function LeadsPage() {
     );
   }
 
-  // ✅ Agents (profiles) — IMPORTANT: return full_name, email
-  const { data: profiles, error: agentsErr } = await supabase
+  // ✅ Agents (profiles) — IMPORTANT: keep full_name (and email optional)
+  const { data: agentsData, error: agentsErr } = await supabase
     .from("profiles")
     .select("id, full_name, email, role")
     .eq("role", "agent")
     .order("full_name", { ascending: true });
 
-  // ✅ DO NOT map to {id,label}. Keep shape consistent with Agent type.
-  const agents = agentsErr || !profiles ? [] : (profiles as any);
+  const agents = (agentsErr || !agentsData ? [] : agentsData).map((a: any) => ({
+    id: a.id as string,
+    full_name: (a.full_name ?? null) as string | null,
+    email: (a.email ?? null) as string | null,
+    role: (a.role ?? null) as string | null,
+  }));
 
   // Brands
   const { data: brandsData, error: brandsErr } = await supabase
