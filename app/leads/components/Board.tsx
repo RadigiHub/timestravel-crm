@@ -1,16 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Column from "./Column";
 import AddLeadModal from "./AddLeadModal";
-import {
-  assignLeadAction,
-  listAgentsAction,
-  moveLeadAction,
-  type Agent,
-  type Lead,
-  type LeadStatus,
-} from "../actions";
+import { assignLeadAction, moveLeadAction, type Agent, type Lead, type LeadStatus, type Brand } from "../actions";
 
 const COLUMNS: LeadStatus[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
 
@@ -22,9 +15,13 @@ function normalizeLead(l: any): Lead {
     email: l.email ?? null,
     source: l.source ?? null,
     notes: l.notes ?? null,
+
     status: (l.status ?? "New") as LeadStatus,
-    assigned_to: l.assigned_to ?? null,
-    follow_up_at: l.follow_up_at ?? null,
+
+    // ✅ IMPORTANT: agent_id + brand_id
+    agent_id: l.agent_id ?? null,
+    brand_id: l.brand_id ?? null,
+
     created_at: l.created_at,
 
     departure: l.departure ?? null,
@@ -42,57 +39,50 @@ function normalizeLead(l: any): Lead {
   };
 }
 
-export default function Board({ initialLeads }: { initialLeads: any[] }) {
+export default function Board({
+  initialLeads,
+  agents,
+  brands,
+}: {
+  initialLeads: any[];
+  agents: Agent[];
+  brands: Brand[];
+}) {
   const [leads, setLeads] = useState<Lead[]>(() => (initialLeads ?? []).map(normalizeLead));
-  const [agents, setAgents] = useState<Agent[]>([]);
   const [disabled, setDisabled] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      const res = await listAgentsAction();
-      if (res.ok) setAgents(res.data ?? []);
-    })();
-  }, []);
 
   const leadsByStatus = useMemo(() => {
     const map: Record<LeadStatus, Lead[]> = {
-      "New": [],
-      "Contacted": [],
+      New: [],
+      Contacted: [],
       "Follow-Up": [],
-      "Booked": [],
-      "Lost": [],
+      Booked: [],
+      Lost: [],
     };
     for (const l of leads) {
       const key = (l.status ?? "New") as LeadStatus;
-      (map[key] ?? map["New"]).push(l);
+      (map[key] ?? map.New).push(l);
     }
     return map;
   }, [leads]);
 
   async function onMove(id: string, status: LeadStatus) {
     setDisabled(true);
-
-    // optimistic
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, status } : l)));
 
     const res = await moveLeadAction({ id, status });
-    if (!res.ok) {
-      alert(res.error);
-      // optional revert not added (demo-focused)
-    }
+    if (!res.ok) alert(res.error);
+
     setDisabled(false);
   }
 
-  async function onAssign(id: string, assigned_to: string | null) {
+  async function onAssign(id: string, agent_id: string | null) {
     setDisabled(true);
+    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, agent_id } : l)));
 
-    // optimistic
-    setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, assigned_to } : l)));
+    const res = await assignLeadAction({ id, agent_id });
+    if (!res.ok) alert(res.error);
 
-    const res = await assignLeadAction({ id, assigned_to });
-    if (!res.ok) {
-      alert(res.error);
-    }
     setDisabled(false);
   }
 
@@ -101,9 +91,10 @@ export default function Board({ initialLeads }: { initialLeads: any[] }) {
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-xl font-semibold text-zinc-900">Leads Board</div>
-          <div className="text-sm text-zinc-600">Pipeline view (demo-ready stable build)</div>
+          <div className="text-sm text-zinc-600">Pipeline view (stable build)</div>
         </div>
-        <AddLeadModal />
+
+        <AddLeadModal agents={agents} brands={brands} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-5">
