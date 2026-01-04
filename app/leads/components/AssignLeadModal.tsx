@@ -26,7 +26,7 @@ export default function AssignLeadModal({
 
   function save() {
     startTransition(async () => {
-      const res = await assignLeadAction({ id: leadId, assigned_to: selected || null });
+      const res = await assignLeadAction({ id: leadId, agent_id: selected || null });
       if (!res.ok) {
         alert(res.error);
         return;
