@@ -115,11 +115,10 @@ export default async function LeadsPage() {
       </div>
 
       <Board
-        statuses={(statuses ?? []) as any}
-        initialLeads={(leads ?? []) as any}
-        agents={agents as any}
-        brands={brands as any}
-      />
+  initialLeads={(leads ?? []) as any}
+  agents={agents as any}
+  brands={brands as any}
+/>
     </div>
   );
 }
