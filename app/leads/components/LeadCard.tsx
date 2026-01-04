@@ -20,9 +20,11 @@ const STATUSES: LeadStatus[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost
 
 function agentLabel(a: Agent) {
   const name = (a.full_name ?? "").trim();
-  const email = (a.email ?? "").trim();
   if (name) return name;
-  if (email) return email;
+
+  const email = (a.email ?? "").trim();
+  if (email) return email.split("@")[0] || email;
+
   return `Agent ${a.id.slice(0, 8)}`;
 }
 
@@ -49,6 +51,12 @@ export default function LeadCard({
     const parts = [lead.phone, lead.email, lead.source].filter(Boolean);
     return parts.join(" • ");
   }, [lead.phone, lead.email, lead.source]);
+
+  const sortedAgents = useMemo(() => {
+    const copy = [...agents];
+    copy.sort((a, b) => agentLabel(a).localeCompare(agentLabel(b)));
+    return copy;
+  }, [agents]);
 
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm" onClick={() => onView?.(lead)}>
@@ -110,7 +118,7 @@ export default function LeadCard({
               onClick={(e) => e.stopPropagation()}
             >
               <option value="">Unassigned</option>
-              {agents.map((a) => (
+              {sortedAgents.map((a) => (
                 <option key={a.id} value={a.id}>
                   {agentLabel(a)}
                 </option>
