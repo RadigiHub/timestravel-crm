@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import AddLeadForm from "./AddLeadForm";
+import type { Agent, Brand } from "../actions";
 
-export default function AddLeadModal() {
+export default function AddLeadModal({ agents, brands }: { agents: Agent[]; brands: Brand[] }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -23,7 +24,7 @@ export default function AddLeadModal() {
             </div>
 
             <div className="p-4">
-              <AddLeadForm onDone={() => setOpen(false)} />
+              <AddLeadForm agents={agents} brands={brands} onDone={() => setOpen(false)} />
             </div>
           </div>
         </div>
