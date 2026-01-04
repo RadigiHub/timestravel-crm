@@ -4,24 +4,15 @@ import { supabaseServer } from "@/lib/supabase/server";
 
 export type LeadStatus = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
 
-/**
- * Backwards compatibility:
- * Kuch files me LeadStage use ho raha tha.
- * Isko LeadStatus ka alias bana diya so build kabhi na toote.
- */
+/** Backwards compatibility */
 export type LeadStage = LeadStatus;
 
-/**
- * Agents are stored in public.profiles (role='agent')
- * We'll return a shape that is easy to render in dropdowns.
- */
 export type Agent = {
   id: string;
   full_name: string | null;
   email: string | null;
 };
 
-/** Brands are stored in public.brands */
 export type Brand = {
   id: string;
   name: string;
@@ -38,16 +29,9 @@ export type Lead = {
 
   status: LeadStatus;
 
-  /**
-   * IMPORTANT:
-   * We will use agent_id (FK -> profiles.id) for assignment.
-   * assigned_to exists but points to auth.users; keep it for compatibility only.
-   */
-  agent_id?: string | null;
-  brand_id?: string | null;
-
-  // legacy/compat
-  assigned_to?: string | null;
+  // ✅ DB-driven assignment fields
+  agent_id: string | null;
+  brand_id: string | null;
 
   follow_up_at: string | null;
   created_at: string;
@@ -73,37 +57,53 @@ function errMsg(e: unknown) {
   return e instanceof Error ? e.message : "Unknown error";
 }
 
-/**
- * ✅ List agents from public.profiles where role = 'agent'
- */
+function clean(v?: string | null) {
+  return (v ?? "").trim();
+}
+
+/** ✅ Your leads.status_id values shown in Supabase are like: new, contacted ... */
+function statusToStatusId(s: LeadStatus): string {
+  switch (s) {
+    case "New":
+      return "new";
+    case "Contacted":
+      return "contacted";
+    case "Follow-Up":
+      return "follow-up"; // if your DB uses "followup" instead, change here
+    case "Booked":
+      return "booked";
+    case "Lost":
+      return "lost";
+    default:
+      return "new";
+  }
+}
+
 export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
   try {
     const supabase = await supabaseServer();
 
+    // ✅ Agents live in public.profiles (role = agent)
     const { data, error } = await supabase
       .from("profiles")
-      .select("id,full_name,email,role,created_at")
+      .select("id, full_name, email")
       .eq("role", "agent")
-      .order("full_name", { ascending: true });
+      .order("created_at", { ascending: true });
 
     if (error) return { ok: false, error: error.message };
-
     return { ok: true, data: (data ?? []) as Agent[] };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
   }
 }
 
-/**
- * ✅ List brands from public.brands
- */
 export async function listBrandsAction(): Promise<Ok<Brand[]> | Fail> {
   try {
     const supabase = await supabaseServer();
 
     const { data, error } = await supabase
       .from("brands")
-      .select("id,name")
+      .select("id, name")
       .order("name", { ascending: true });
 
     if (error) return { ok: false, error: error.message };
@@ -113,37 +113,32 @@ export async function listBrandsAction(): Promise<Ok<Brand[]> | Fail> {
   }
 }
 
-/**
- * ✅ Create lead
- * Writes to leads table:
- * - status (string)
- * - agent_id (profiles.id) optional
- * - brand_id (brands.id) optional
- *
- * NOTE: Your leads table has many columns.
- * We only insert what's needed; defaults handle the rest.
- */
 export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead> | Fail> {
   try {
     const supabase = await supabaseServer();
 
+    const status = (payload.status ?? "New") as LeadStatus;
+
+    // ✅ lead.full_name is NOT NULL in DB, so ensure something always exists
+    const safeName =
+      clean(payload.full_name) ||
+      clean(payload.phone) ||
+      clean(payload.email) ||
+      "Unnamed lead";
+
     const insertRow: any = {
-      full_name: payload.full_name ?? null,
+      full_name: safeName,
       phone: payload.phone ?? null,
       email: payload.email ?? null,
       source: payload.source ?? null,
       notes: payload.notes ?? null,
 
-      status: (payload.status ?? "New") as LeadStatus,
+      // ✅ store both (your app uses status text right now)
+      status,
+      status_id: statusToStatusId(status),
 
-      // ✅ Use agent_id + brand_id
       agent_id: payload.agent_id ?? null,
       brand_id: payload.brand_id ?? null,
-
-      // legacy - keep if some UI still sends it
-      assigned_to: payload.assigned_to ?? null,
-
-      follow_up_at: payload.follow_up_at ?? null,
 
       departure: payload.departure ?? null,
       destination: payload.destination ?? null,
@@ -159,11 +154,7 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
       cabin: payload.cabin ?? null,
     };
 
-    const { data, error } = await supabase
-      .from("leads")
-      .insert(insertRow)
-      .select("*")
-      .single();
+    const { data, error } = await supabase.from("leads").insert(insertRow).select("*").single();
 
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: data as Lead };
@@ -172,16 +163,16 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
   }
 }
 
-/**
- * ✅ Move lead between columns (status string)
- */
 export async function moveLeadAction(args: { id: string; status: LeadStatus }): Promise<Ok<true> | Fail> {
   try {
     const supabase = await supabaseServer();
 
     const { error } = await supabase
       .from("leads")
-      .update({ status: args.status })
+      .update({
+        status: args.status,
+        status_id: statusToStatusId(args.status),
+      })
       .eq("id", args.id);
 
     if (error) return { ok: false, error: error.message };
@@ -191,10 +182,6 @@ export async function moveLeadAction(args: { id: string; status: LeadStatus }): 
   }
 }
 
-/**
- * ✅ Assign lead to an agent (profiles.id) via agent_id
- * This is the correct mapping for your schema.
- */
 export async function assignLeadAction(args: { id: string; agent_id: string | null }): Promise<Ok<true> | Fail> {
   try {
     const supabase = await supabaseServer();
