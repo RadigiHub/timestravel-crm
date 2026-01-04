@@ -12,7 +12,7 @@ export default async function LeadsPage() {
 
   if (!auth?.user) redirect("/login");
 
-  // 1) Statuses
+  // Statuses
   const { data: statuses, error: statusErr } = await supabase
     .from("lead_statuses")
     .select("id,label,position,color")
@@ -39,7 +39,7 @@ export default async function LeadsPage() {
     );
   }
 
-  // 2) Leads
+  // Leads
   const { data: leads, error: leadsErr } = await supabase
     .from("leads")
     .select("*")
@@ -67,14 +67,13 @@ export default async function LeadsPage() {
     );
   }
 
-  // 3) Agents (IMPORTANT) — profiles se load karo
+  // Agents (profiles)
   const { data: profiles, error: agentsErr } = await supabase
     .from("profiles")
     .select("id, full_name, role")
     .eq("role", "agent")
     .order("full_name", { ascending: true });
 
-  // Agents optional — board still render ho jaye
   const agents =
     agentsErr || !profiles
       ? []
@@ -83,14 +82,21 @@ export default async function LeadsPage() {
           label: (p.full_name ?? "Agent") as string,
         }));
 
+  // Brands
+  const { data: brandsData, error: brandsErr } = await supabase
+    .from("brands")
+    .select("id, name")
+    .order("name", { ascending: true });
+
+  const brands = brandsErr || !brandsData ? [] : (brandsData as any);
+
   return (
     <div className="mx-auto max-w-6xl p-6">
-      {/* Top Bar */}
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Leads Board</h1>
           <p className="mt-1 text-sm text-zinc-600">
-            Drag & drop to move leads across stages.
+            Pipeline view + quick status & agent assignment.
           </p>
 
           {agentsErr ? (
@@ -108,11 +114,11 @@ export default async function LeadsPage() {
         </Link>
       </div>
 
-      {/* Kanban Board */}
       <Board
         statuses={(statuses ?? []) as any}
         initialLeads={(leads ?? []) as any}
         agents={agents as any}
+        brands={brands as any}
       />
     </div>
   );
