@@ -19,11 +19,11 @@ type Props = {
 const STATUSES: LeadStatus[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
 
 function agentLabel(a: Agent) {
-  const n = (a.full_name ?? "").trim();
-  if (n) return n;
-  const e = ((a as any).email ?? "").trim();
-  if (e) return e;
-  return `Agent ${String(a.id).slice(0, 8)}`;
+  const name = (a.full_name ?? "").trim();
+  const email = (a.email ?? "").trim();
+  if (name) return name;
+  if (email) return email;
+  return `Agent ${a.id.slice(0, 8)}`;
 }
 
 export default function LeadCard({
