@@ -14,6 +14,15 @@ function clean(v?: string) {
   return (v ?? "").trim();
 }
 
+function agentLabel(a: Agent) {
+  const n = (a.full_name ?? "").trim();
+  if (n) return n;
+  // email optional (may not exist in data)
+  const e = ((a as any).email ?? "").trim();
+  if (e) return e;
+  return `Agent ${String(a.id).slice(0, 8)}`;
+}
+
 export default function AddLeadForm({
   onDone,
   agents = [],
@@ -113,7 +122,7 @@ export default function AddLeadForm({
           <option value="">Assign agent (optional)</option>
           {agents.map((a) => (
             <option key={a.id} value={a.id}>
-              {a.full_name ?? a.email ?? a.id}
+              {agentLabel(a)}
             </option>
           ))}
         </select>
