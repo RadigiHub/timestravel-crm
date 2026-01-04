@@ -1,4 +1,5 @@
 import { getDashboardDataAction } from "./actions";
+import { supabaseServer } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,41 @@ export default async function DashboardPage() {
   const { totalLeads, todayNew, followupsDue, statusCounts, leaderboard } =
     res.data;
 
+  // ✅ Always resolve agent names from profiles (agentId -> full_name)
+  const supabase = await supabaseServer();
+
+  const agentIds = Array.from(
+    new Set(
+      (leaderboard ?? [])
+        .map((x: any) => x.agentId)
+        .filter(Boolean) as string[]
+    )
+  );
+
+  let agentNameById = new Map<string, string>();
+
+  if (agentIds.length) {
+    const { data: agentsData } = await supabase
+      .from("profiles")
+      .select("id, full_name")
+      .in("id", agentIds);
+
+    agentNameById = new Map(
+      (agentsData ?? []).map((a: any) => [
+        a.id as string,
+        (a.full_name ?? "").toString(),
+      ])
+    );
+  }
+
+  const getAgentLabel = (row: any) => {
+    if (!row?.agentId) return "Unassigned";
+    const n = agentNameById.get(row.agentId);
+    if (n && n.trim().length) return n;
+    // fallback (but normally this won't show)
+    return row.label ?? `Agent ${String(row.agentId).slice(0, 6)}`;
+  };
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -50,7 +86,11 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Card title="Total Leads" value={totalLeads} />
         <Card title="Today New" value={todayNew} hint="Created today" />
-        <Card title="Follow-ups Due" value={followupsDue} hint="Due today / overdue" />
+        <Card
+          title="Follow-ups Due"
+          value={followupsDue}
+          hint="Due today / overdue"
+        />
         <Card title="Booked" value={statusCounts["Booked"]} hint="Total booked" />
       </div>
 
@@ -58,7 +98,9 @@ export default async function DashboardPage() {
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-base font-semibold text-zinc-900">Pipeline Status</div>
+            <div className="text-base font-semibold text-zinc-900">
+              Pipeline Status
+            </div>
             <div className="text-sm text-zinc-600">
               New → Contacted → Follow-Up → Booked/Lost
             </div>
@@ -78,8 +120,12 @@ export default async function DashboardPage() {
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-base font-semibold text-zinc-900">Agent Leaderboard</div>
-            <div className="text-sm text-zinc-600">Booked priority, then total workload</div>
+            <div className="text-base font-semibold text-zinc-900">
+              Agent Leaderboard
+            </div>
+            <div className="text-sm text-zinc-600">
+              Booked priority, then total workload
+            </div>
           </div>
         </div>
 
@@ -95,9 +141,14 @@ export default async function DashboardPage() {
             </thead>
             <tbody>
               {leaderboard.length ? (
-                leaderboard.map((a) => (
-                  <tr key={a.agentId} className="border-b border-zinc-100">
-                    <td className="py-3 pr-3 font-medium text-zinc-900">{a.label}</td>
+                leaderboard.map((a: any, idx: number) => (
+                  <tr
+                    key={a.agentId ? a.agentId : `unassigned-${idx}`}
+                    className="border-b border-zinc-100"
+                  >
+                    <td className="py-3 pr-3 font-medium text-zinc-900">
+                      {getAgentLabel(a)}
+                    </td>
                     <td className="py-3 pr-3 text-zinc-700">{a.total}</td>
                     <td className="py-3 pr-3 text-zinc-700">{a.booked}</td>
                     <td className="py-3 pr-3 text-zinc-700">{a.newToday}</td>
