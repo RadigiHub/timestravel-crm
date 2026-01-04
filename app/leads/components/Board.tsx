@@ -3,7 +3,14 @@
 import { useMemo, useState } from "react";
 import Column from "./Column";
 import AddLeadModal from "./AddLeadModal";
-import { assignLeadAction, moveLeadAction, type Agent, type Lead, type LeadStatus, type Brand } from "../actions";
+import {
+  assignLeadAction,
+  moveLeadAction,
+  type Agent,
+  type Lead,
+  type LeadStatus,
+  type Brand,
+} from "../actions";
 
 const COLUMNS: LeadStatus[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
 
@@ -17,6 +24,9 @@ function normalizeLead(l: any): Lead {
     notes: l.notes ?? null,
 
     status: (l.status ?? "New") as LeadStatus,
+
+    // ✅ REQUIRED BY Lead type (fixes your current Vercel error)
+    follow_up_at: l.follow_up_at ?? null,
 
     // ✅ IMPORTANT: agent_id + brand_id
     agent_id: l.agent_id ?? null,
@@ -59,6 +69,7 @@ export default function Board({
       Booked: [],
       Lost: [],
     };
+
     for (const l of leads) {
       const key = (l.status ?? "New") as LeadStatus;
       (map[key] ?? map.New).push(l);
@@ -68,6 +79,8 @@ export default function Board({
 
   async function onMove(id: string, status: LeadStatus) {
     setDisabled(true);
+
+    // optimistic
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, status } : l)));
 
     const res = await moveLeadAction({ id, status });
@@ -78,6 +91,8 @@ export default function Board({
 
   async function onAssign(id: string, agent_id: string | null) {
     setDisabled(true);
+
+    // optimistic
     setLeads((prev) => prev.map((l) => (l.id === id ? { ...l, agent_id } : l)));
 
     const res = await assignLeadAction({ id, agent_id });
