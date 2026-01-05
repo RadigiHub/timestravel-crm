@@ -9,6 +9,7 @@ type Props = {
 
   agents?: Agent[];
   disabled?: boolean;
+
   onMove?: (id: string, status: LeadStatus) => void | Promise<void>;
   onAssign?: (id: string, agent_id: string | null) => void | Promise<void>;
 
@@ -58,12 +59,20 @@ export default function LeadCard({
     return copy;
   }, [agents]);
 
+  function openDetails() {
+    // ✅ HARD SAFETY
+    if (!lead?.id) return;
+    router.push(`/leads/${lead.id}`);
+  }
+
   return (
     <div
-      className="cursor-pointer rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm hover:bg-zinc-50"
-      onClick={() => {
-        if (!lead?.id) return;
-        router.push(`/leads/${lead.id}`);
+      className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm hover:shadow-md transition cursor-pointer"
+      onClick={openDetails}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") openDetails();
       }}
     >
       <div className="flex items-start justify-between gap-2">
@@ -132,7 +141,9 @@ export default function LeadCard({
         </div>
       )}
 
-      {lead.notes ? <div className="mt-2 line-clamp-2 text-xs text-zinc-600">{lead.notes}</div> : null}
+      {lead.notes ? (
+        <div className="mt-2 line-clamp-2 text-xs text-zinc-600">{lead.notes}</div>
+      ) : null}
     </div>
   );
 }
