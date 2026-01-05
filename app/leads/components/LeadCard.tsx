@@ -12,7 +12,6 @@ type Props = {
   onMove?: (id: string, status: LeadStatus) => void | Promise<void>;
   onAssign?: (id: string, agent_id: string | null) => void | Promise<void>;
 
-  onView?: (lead: Lead) => void;
   onAction?: (lead: Lead, anchor: HTMLButtonElement) => void;
   dragHandleProps?: any;
 };
@@ -35,7 +34,6 @@ export default function LeadCard({
   disabled = false,
   onMove,
   onAssign,
-  onView,
   onAction,
   dragHandleProps,
 }: Props) {
@@ -62,19 +60,10 @@ export default function LeadCard({
 
   return (
     <div
-      className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm hover:border-zinc-300"
-      role="button"
-      tabIndex={0}
+      className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm hover:bg-zinc-50 cursor-pointer"
       onClick={() => {
-        if (onView) return onView(lead);
+        if (!lead?.id) return;
         router.push(`/leads/${lead.id}`);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          if (onView) return onView(lead);
-          router.push(`/leads/${lead.id}`);
-        }
       }}
     >
       <div className="flex items-start justify-between gap-2">
@@ -109,14 +98,13 @@ export default function LeadCard({
       </div>
 
       {(onMove || onAssign) && (
-        <div className="mt-3 grid grid-cols-1 gap-2">
+        <div className="mt-3 grid grid-cols-1 gap-2" onClick={(e) => e.stopPropagation()}>
           {onMove && (
             <select
               className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
               value={(lead.status ?? "New") as LeadStatus}
               onChange={(e) => onMove(lead.id, e.target.value as LeadStatus)}
               disabled={disabled}
-              onClick={(e) => e.stopPropagation()}
             >
               {STATUSES.map((s) => (
                 <option key={s} value={s}>
@@ -132,7 +120,6 @@ export default function LeadCard({
               value={lead.agent_id ?? ""}
               onChange={(e) => onAssign(lead.id, e.target.value || null)}
               disabled={disabled}
-              onClick={(e) => e.stopPropagation()}
             >
               <option value="">Unassigned</option>
               {sortedAgents.map((a) => (
