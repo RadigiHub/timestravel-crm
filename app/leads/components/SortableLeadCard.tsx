@@ -8,11 +8,9 @@ import type { Lead } from "../actions";
 
 export default function SortableLeadCard({
   lead,
-  onView,
   onAction,
 }: {
   lead: Lead;
-  onView: (lead: Lead) => void;
   onAction: (lead: Lead, anchor: HTMLButtonElement) => void;
 }) {
   const {
@@ -34,7 +32,6 @@ export default function SortableLeadCard({
     <div ref={setNodeRef} style={style}>
       <LeadCard
         lead={lead}
-        onView={onView}
         onAction={onAction}
         dragHandleProps={{ ...attributes, ...listeners }}
       />
