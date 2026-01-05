@@ -17,6 +17,7 @@ export default async function LeadDetailsPage({
 
   const leadId = params.id;
 
+  // Lead
   const { data: lead, error: leadErr } = await supabase
     .from("leads")
     .select("*")
@@ -58,7 +59,15 @@ export default async function LeadDetailsPage({
     role: (p.role ?? null) as string | null,
   }));
 
-  // Activities
+  // Brands (optional, but useful for the details UI)
+  const { data: brandsData } = await supabase
+    .from("brands")
+    .select("id, name")
+    .order("name", { ascending: true });
+
+  const brands = (brandsData ?? []) as any[];
+
+  // Timeline / Activities
   const { data: activities } = await supabase
     .from("lead_activities")
     .select("id, lead_id, type, message, created_at")
@@ -66,12 +75,21 @@ export default async function LeadDetailsPage({
     .order("created_at", { ascending: false })
     .limit(100);
 
+  // ✅ LeadDetailsClient expects: logs: [{id, created_at, message}]
+  const logs = (activities ?? []).map((a: any) => ({
+    id: a.id,
+    created_at: a.created_at,
+    message: a.message ?? a.type ?? "Activity",
+  }));
+
   return (
     <div className="mx-auto max-w-4xl p-6 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Lead Details</h1>
-          <p className="mt-1 text-sm text-zinc-600">One lead view + actions + timeline.</p>
+          <p className="mt-1 text-sm text-zinc-600">
+            One lead view + actions + timeline.
+          </p>
         </div>
 
         <Link
@@ -85,7 +103,8 @@ export default async function LeadDetailsPage({
       <LeadDetailsClient
         lead={lead as any}
         agents={agents as any}
-        activities={(activities ?? []) as any}
+        brands={brands as any}
+        logs={logs as any}
       />
     </div>
   );
