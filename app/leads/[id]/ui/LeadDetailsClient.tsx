@@ -1,18 +1,60 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Agent, Lead, LeadStatus } from "../../actions";
-import { assignLeadAction, moveLeadAction } from "../../actions";
+import { assignLeadAction, moveLeadAction } from "@/app/leads/actions";
+
+type Agent = {
+  id: string;
+  full_name: string | null;
+  email?: string | null;
+};
+
+type Activity = {
+  id: string;
+  lead_id: string;
+  type: string;
+  message: string | null;
+  created_at: string;
+};
+
+type LeadStatus = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
+
+type Lead = {
+  id: string;
+  full_name: string | null;
+  phone: string | null;
+  email: string | null;
+  source: string | null;
+  notes: string | null;
+  status: LeadStatus;
+
+  agent_id: string | null;
+  brand_id: string | null;
+
+  follow_up_at: string | null;
+  created_at: string;
+
+  departure: string | null;
+  destination: string | null;
+  travel_date: string | null;
+  return_date: string | null;
+
+  pax_adults: number | null;
+  pax_children: number | null;
+  pax_infants: number | null;
+
+  budget: number | null;
+  airline: string | null;
+  cabin: string | null;
+};
 
 const STATUSES: LeadStatus[] = ["New", "Contacted", "Follow-Up", "Booked", "Lost"];
 
 function agentLabel(a: Agent) {
   const name = (a.full_name ?? "").trim();
   if (name) return name;
-
   const email = (a.email ?? "").trim();
   if (email) return email.split("@")[0] || email;
-
   return `Agent ${a.id.slice(0, 8)}`;
 }
 
@@ -23,7 +65,7 @@ export default function LeadDetailsClient({
 }: {
   lead: Lead;
   agents: Agent[];
-  activities: { id: string; type: string; message: string; created_at: string }[];
+  activities: Activity[];
 }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<LeadStatus>((lead.status ?? "New") as LeadStatus);
@@ -33,26 +75,10 @@ export default function LeadDetailsClient({
     const n = (lead.full_name ?? "").trim();
     const p = (lead.phone ?? "").trim();
     const e = (lead.email ?? "").trim();
-    return n || p || e || "Unnamed lead";
+    return n || p || e || "Lead";
   }, [lead.full_name, lead.phone, lead.email]);
 
-  const routeText = useMemo(() => {
-    const from = (lead.departure ?? "").trim();
-    const to = (lead.destination ?? "").trim();
-    if (!from && !to) return "—";
-    if (from && to) return `${from} → ${to}`;
-    return from || to;
-  }, [lead.departure, lead.destination]);
-
-  const dateText = useMemo(() => {
-    const d1 = (lead.travel_date ?? "").trim();
-    const d2 = (lead.return_date ?? "").trim();
-    if (!d1 && !d2) return "—";
-    if (d1 && d2) return `${d1} / ${d2}`;
-    return d1 || d2;
-  }, [lead.travel_date, lead.return_date]);
-
-  async function saveStatus(next: LeadStatus) {
+  async function updateStatus(next: LeadStatus) {
     setBusy(true);
     setStatus(next);
 
@@ -62,11 +88,11 @@ export default function LeadDetailsClient({
     setBusy(false);
   }
 
-  async function saveAgent(next: string) {
+  async function updateAgent(next: string) {
     setBusy(true);
     setAgentId(next);
 
-    const res = await assignLeadAction({ id: lead.id, agent_id: next || null });
+    const res = await assignLeadAction({ id: lead.id, agent_id: next ? next : null });
     if (!res.ok) alert(res.error);
 
     setBusy(false);
@@ -74,51 +100,28 @@ export default function LeadDetailsClient({
 
   return (
     <div className="space-y-4">
-      {/* Summary */}
+      {/* Top Summary */}
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="text-lg font-semibold text-zinc-900">{title}</div>
-        <div className="mt-1 text-xs text-zinc-500">Lead ID: {lead.id}</div>
-
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div className="rounded-xl border border-zinc-200 p-3">
-            <div className="text-xs text-zinc-500">Phone</div>
-            <div className="text-sm text-zinc-900">{lead.phone ?? "—"}</div>
-          </div>
-
-          <div className="rounded-xl border border-zinc-200 p-3">
-            <div className="text-xs text-zinc-500">Email</div>
-            <div className="text-sm text-zinc-900">{lead.email ?? "—"}</div>
-          </div>
-
-          <div className="rounded-xl border border-zinc-200 p-3">
-            <div className="text-xs text-zinc-500">Source</div>
-            <div className="text-sm text-zinc-900">{lead.source ?? "—"}</div>
-          </div>
-
-          <div className="rounded-xl border border-zinc-200 p-3">
-            <div className="text-xs text-zinc-500">Route</div>
-            <div className="text-sm text-zinc-900">{routeText}</div>
-          </div>
-
-          <div className="rounded-xl border border-zinc-200 p-3">
-            <div className="text-xs text-zinc-500">Travel Dates</div>
-            <div className="text-sm text-zinc-900">{dateText}</div>
-          </div>
-
-          <div className="rounded-xl border border-zinc-200 p-3">
-            <div className="text-xs text-zinc-500">Budget</div>
-            <div className="text-sm text-zinc-900">{lead.budget ?? "—"}</div>
-          </div>
-        </div>
-
-        {/* Controls */}
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
-            <div className="mb-1 text-xs font-medium text-zinc-600">Status</div>
+            <div className="text-xl font-semibold text-zinc-900">{title}</div>
+            <div className="mt-1 text-sm text-zinc-600">
+              {lead.phone ? <span>{lead.phone}</span> : null}
+              {lead.phone && lead.email ? <span> • </span> : null}
+              {lead.email ? <span>{lead.email}</span> : null}
+              {(lead.phone || lead.email) && lead.source ? <span> • </span> : null}
+              {lead.source ? <span>{lead.source}</span> : null}
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">
+              Created: {lead.created_at ? new Date(lead.created_at).toLocaleString() : "-"}
+            </div>
+          </div>
+
+          <div className="grid w-full gap-2 md:w-[360px]">
             <select
               className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
               value={status}
-              onChange={(e) => saveStatus(e.target.value as LeadStatus)}
+              onChange={(e) => updateStatus(e.target.value as LeadStatus)}
               disabled={busy}
             >
               {STATUSES.map((s) => (
@@ -127,52 +130,65 @@ export default function LeadDetailsClient({
                 </option>
               ))}
             </select>
-          </div>
 
-          <div>
-            <div className="mb-1 text-xs font-medium text-zinc-600">Assigned Agent</div>
             <select
               className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
               value={agentId}
-              onChange={(e) => saveAgent(e.target.value)}
+              onChange={(e) => updateAgent(e.target.value)}
               disabled={busy}
             >
               <option value="">Unassigned</option>
-              {agents
-                .slice()
-                .sort((a, b) => agentLabel(a).localeCompare(agentLabel(b)))
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {agentLabel(a)}
-                  </option>
-                ))}
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {agentLabel(a)}
+                </option>
+              ))}
             </select>
           </div>
         </div>
+      </div>
 
-        {/* Notes */}
+      {/* Trip Details */}
+      <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+        <div className="text-base font-semibold text-zinc-900">Trip Details</div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <Info label="Departure" value={lead.departure} />
+          <Info label="Destination" value={lead.destination} />
+          <Info label="Travel date" value={lead.travel_date} />
+          <Info label="Return date" value={lead.return_date} />
+          <Info label="Cabin" value={lead.cabin} />
+          <Info label="Preferred airline" value={lead.airline} />
+          <Info
+            label="Passengers"
+            value={`${lead.pax_adults ?? 0}A • ${lead.pax_children ?? 0}C • ${lead.pax_infants ?? 0}I`}
+          />
+          <Info label="Budget" value={lead.budget != null ? String(lead.budget) : null} />
+        </div>
+
         {lead.notes ? (
           <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
             <div className="text-xs font-medium text-zinc-600">Notes</div>
-            <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-800">{lead.notes}</div>
+            <div className="mt-1 text-sm text-zinc-800 whitespace-pre-wrap">{lead.notes}</div>
           </div>
-        ) : (
-          <div className="mt-4 text-sm text-zinc-600">No notes yet.</div>
-        )}
+        ) : null}
       </div>
 
       {/* Timeline */}
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
         <div className="text-base font-semibold text-zinc-900">Timeline</div>
 
-        <div className="mt-3 space-y-2">
+        <div className="mt-3 space-y-3">
           {activities?.length ? (
             activities.map((a) => (
               <div key={a.id} className="rounded-xl border border-zinc-200 p-3">
-                <div className="text-xs text-zinc-500">
-                  {a.type} • {new Date(a.created_at).toLocaleString()}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-medium text-zinc-900">{a.type}</div>
+                  <div className="text-xs text-zinc-500">
+                    {a.created_at ? new Date(a.created_at).toLocaleString() : "-"}
+                  </div>
                 </div>
-                <div className="mt-1 text-sm text-zinc-900">{a.message}</div>
+                {a.message ? <div className="mt-1 text-sm text-zinc-700">{a.message}</div> : null}
               </div>
             ))
           ) : (
@@ -180,6 +196,15 @@ export default function LeadDetailsClient({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 p-3">
+      <div className="text-xs font-medium text-zinc-600">{label}</div>
+      <div className="mt-1 text-sm text-zinc-900">{value ? value : "—"}</div>
     </div>
   );
 }
