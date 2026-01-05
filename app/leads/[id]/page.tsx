@@ -6,6 +6,10 @@ import { redirect } from "next/navigation";
 import LeadDetailsClient from "./ui/LeadDetailsClient";
 import { supabaseServer } from "@/lib/supabase/server";
 
+function isUuid(v: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
 export default async function LeadDetailsPage({
   params,
 }: {
@@ -17,8 +21,7 @@ export default async function LeadDetailsPage({
 
   const leadId = params?.id;
 
-  // ✅ safety guard (prevents uuid "undefined" crash)
-  if (!leadId || leadId === "undefined") {
+  if (!leadId || !isUuid(leadId)) {
     return (
       <div className="mx-auto max-w-4xl p-6">
         <div className="rounded-2xl border border-zinc-200 bg-white p-5">
@@ -64,7 +67,6 @@ export default async function LeadDetailsPage({
     );
   }
 
-  // Agents
   const { data: profiles } = await supabase
     .from("profiles")
     .select("id, full_name, email, role")
@@ -78,7 +80,6 @@ export default async function LeadDetailsPage({
     role: (p.role ?? null) as string | null,
   }));
 
-  // Activities (optional table, safe even if empty)
   const { data: activities } = await supabase
     .from("lead_activities")
     .select("id, lead_id, type, message, created_at")
@@ -87,7 +88,7 @@ export default async function LeadDetailsPage({
     .limit(100);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-4 p-6">
+    <div className="mx-auto max-w-4xl p-6 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Lead Details</h1>
