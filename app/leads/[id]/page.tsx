@@ -15,9 +15,28 @@ export default async function LeadDetailsPage({
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  const leadId = params.id;
+  const leadId = params?.id;
 
-  // Lead
+  // ✅ safety guard (prevents uuid "undefined" crash)
+  if (!leadId || leadId === "undefined") {
+    return (
+      <div className="mx-auto max-w-4xl p-6">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+          <div className="text-lg font-semibold text-zinc-900">Lead not found</div>
+          <div className="mt-2 text-sm text-zinc-600">Invalid lead id.</div>
+          <div className="mt-4">
+            <Link
+              href="/leads"
+              className="inline-flex rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+            >
+              Back to Leads Board
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const { data: lead, error: leadErr } = await supabase
     .from("leads")
     .select("*")
@@ -59,15 +78,7 @@ export default async function LeadDetailsPage({
     role: (p.role ?? null) as string | null,
   }));
 
-  // Brands (optional, but useful for the details UI)
-  const { data: brandsData } = await supabase
-    .from("brands")
-    .select("id, name")
-    .order("name", { ascending: true });
-
-  const brands = (brandsData ?? []) as any[];
-
-  // Timeline / Activities
+  // Activities (optional table, safe even if empty)
   const { data: activities } = await supabase
     .from("lead_activities")
     .select("id, lead_id, type, message, created_at")
@@ -75,21 +86,12 @@ export default async function LeadDetailsPage({
     .order("created_at", { ascending: false })
     .limit(100);
 
-  // ✅ LeadDetailsClient expects: logs: [{id, created_at, message}]
-  const logs = (activities ?? []).map((a: any) => ({
-    id: a.id,
-    created_at: a.created_at,
-    message: a.message ?? a.type ?? "Activity",
-  }));
-
   return (
-    <div className="mx-auto max-w-4xl p-6 space-y-4">
+    <div className="mx-auto max-w-4xl space-y-4 p-6">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Lead Details</h1>
-          <p className="mt-1 text-sm text-zinc-600">
-            One lead view + actions + timeline.
-          </p>
+          <p className="mt-1 text-sm text-zinc-600">One lead view + actions + timeline.</p>
         </div>
 
         <Link
@@ -103,8 +105,7 @@ export default async function LeadDetailsPage({
       <LeadDetailsClient
         lead={lead as any}
         agents={agents as any}
-        brands={brands as any}
-        logs={logs as any}
+        activities={(activities ?? []) as any}
       />
     </div>
   );
