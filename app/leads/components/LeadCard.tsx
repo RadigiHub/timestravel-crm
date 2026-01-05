@@ -60,7 +60,7 @@ export default function LeadCard({
 
   return (
     <div
-      className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm hover:bg-zinc-50 cursor-pointer"
+      className="cursor-pointer rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm hover:bg-zinc-50"
       onClick={() => {
         if (!lead?.id) return;
         router.push(`/leads/${lead.id}`);
