@@ -13,20 +13,34 @@ function isUuid(v: string) {
 export default async function LeadDetailsPage({
   params,
 }: {
-  params: { id: string };
+  params: { id?: string | string[] };
 }) {
   const supabase = await supabaseServer();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth?.user) redirect("/login");
 
-  const leadId = params?.id;
+  // ✅ SUPER SAFE: handle string | string[] | undefined
+  const raw = params?.id;
+  let leadId = Array.isArray(raw) ? raw[0] : raw;
 
+  // ✅ normalize
+  leadId = leadId ? decodeURIComponent(String(leadId)).trim() : "";
+
+  // ✅ DEBUG VIEW (so we know exactly what server received)
   if (!leadId || !isUuid(leadId)) {
     return (
       <div className="mx-auto max-w-4xl p-6">
         <div className="rounded-2xl border border-zinc-200 bg-white p-5">
           <div className="text-lg font-semibold text-zinc-900">Lead not found</div>
           <div className="mt-2 text-sm text-zinc-600">Invalid lead id.</div>
+
+          <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-700 space-y-1">
+            <div><b>DEBUG:</b></div>
+            <div>params.id raw: {JSON.stringify(raw)}</div>
+            <div>normalized leadId: {JSON.stringify(leadId)}</div>
+            <div>isUuid: {String(isUuid(leadId))}</div>
+          </div>
+
           <div className="mt-4">
             <Link
               href="/leads"
@@ -54,6 +68,11 @@ export default async function LeadDetailsPage({
           <div className="mt-2 text-sm text-zinc-600">
             {leadErr?.message ?? "This lead does not exist."}
           </div>
+
+          <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-700">
+            <div><b>DEBUG leadId:</b> {leadId}</div>
+          </div>
+
           <div className="mt-4">
             <Link
               href="/leads"
@@ -67,6 +86,7 @@ export default async function LeadDetailsPage({
     );
   }
 
+  // Agents
   const { data: profiles } = await supabase
     .from("profiles")
     .select("id, full_name, email, role")
@@ -80,6 +100,7 @@ export default async function LeadDetailsPage({
     role: (p.role ?? null) as string | null,
   }));
 
+  // Activities
   const { data: activities } = await supabase
     .from("lead_activities")
     .select("id, lead_id, type, message, created_at")
