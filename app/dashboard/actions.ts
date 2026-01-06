@@ -1,114 +1,166 @@
-// app/dashboard/actions.ts
 "use server";
 
 import { supabaseServer } from "@/lib/supabase/server";
+import type { LeadStatus } from "../leads/actions";
 
-type StatusName = "New" | "Contacted" | "Follow-Up" | "Booked" | "Lost";
+type Ok<T> = { ok: true; data: T };
+type Fail = { ok: false; error: string };
 
-export type DashboardData = {
-  totalLeads: number;
-  todayNew: number;
-  followupsDue: number;
-  statusCounts: Record<StatusName, number>;
-  leaderboard: Array<{
-    agentId: string | null;
-    label: string;
-    total: number;
-    booked: number;
-    newToday: number;
-  }>;
+function errMsg(e: unknown) {
+  return e instanceof Error ? e.message : "Unknown error";
+}
+
+export type DashboardKPIs = {
+  total_leads: number;
+  today_new: number;
+  followups_due: number; // due today OR overdue
+  booked: number;
 };
 
+export type PipelineCounts = Record<LeadStatus, number>;
+
+export type AgentRow = {
+  agent_id: string;
+  agent_name: string;
+  total_leads: number;
+  booked: number;
+  new_today: number;
+};
+
+function startOfTodayISO() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+function startOfTomorrowISO() {
+  const d = new Date();
+  d.setHours(24, 0, 0, 0);
+  return d.toISOString();
+}
+
 export async function getDashboardDataAction(): Promise<
-  { ok: true; data: DashboardData } | { ok: false; error: string }
+  Ok<{ kpis: DashboardKPIs; pipeline: PipelineCounts; agents: AgentRow[] }> | Fail
 > {
   try {
-    // ✅ IMPORTANT: await it (this fixes your error)
     const supabase = await supabaseServer();
 
-    // --- Leads snapshot (small/medium CRM ke liye safe)
-    const { data: leads, error: leadsErr } = await supabase
+    const todayStart = startOfTodayISO();
+    const tomorrowStart = startOfTomorrowISO();
+
+    // 1) Total leads
+    const totalRes = await supabase.from("leads").select("id", { count: "exact", head: true });
+    if (totalRes.error) return { ok: false, error: totalRes.error.message };
+    const total_leads = totalRes.count ?? 0;
+
+    // 2) Today new (created today)
+    const todayRes = await supabase
       .from("leads")
-      .select("id,status,created_at,follow_up_at,agent_id");
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", todayStart)
+      .lt("created_at", tomorrowStart);
+    if (todayRes.error) return { ok: false, error: todayRes.error.message };
+    const today_new = todayRes.count ?? 0;
 
-    if (leadsErr) return { ok: false, error: leadsErr.message };
+    // 3) Booked
+    const bookedRes = await supabase
+      .from("leads")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "Booked");
+    if (bookedRes.error) return { ok: false, error: bookedRes.error.message };
+    const booked = bookedRes.count ?? 0;
 
-    const rows = (leads ?? []) as Array<{
-      id: string;
-      status: StatusName | string | null;
-      created_at: string | null;
-      follow_up_at: string | null;
-      agent_id: string | null;
-    }>;
+    // 4) Follow-ups Due (follow_up_at <= end of today)
+    // We count any follow_up_at that is <= tomorrowStart (means due today or overdue)
+    const fuRes = await supabase
+      .from("leads")
+      .select("id", { count: "exact", head: true })
+      .not("follow_up_at", "is", null)
+      .lt("follow_up_at", tomorrowStart);
+    if (fuRes.error) return { ok: false, error: fuRes.error.message };
+    const followups_due = fuRes.count ?? 0;
 
-    const now = new Date();
-    const startOfToday = new Date(now);
-    startOfToday.setHours(0, 0, 0, 0);
+    // Pipeline counts (grouping in JS)
+    const { data: statusRows, error: statusErr } = await supabase.from("leads").select("status");
+    if (statusErr) return { ok: false, error: statusErr.message };
 
-    const statusCounts: Record<StatusName, number> = {
+    const pipeline: PipelineCounts = {
       New: 0,
       Contacted: 0,
       "Follow-Up": 0,
       Booked: 0,
       Lost: 0,
     };
-
-    let todayNew = 0;
-    let followupsDue = 0;
-
-    // Leaderboard bucket
-    const byAgent = new Map<
-      string | null,
-      { total: number; booked: number; newToday: number }
-    >();
-
-    const bumpAgent = (agentId: string | null) => {
-      if (!byAgent.has(agentId)) byAgent.set(agentId, { total: 0, booked: 0, newToday: 0 });
-      return byAgent.get(agentId)!;
-    };
-
-    for (const l of rows) {
-      const st = (l.status ?? "New") as StatusName;
-
-      if (st in statusCounts) statusCounts[st as StatusName] += 1;
-
-      const createdAt = l.created_at ? new Date(l.created_at) : null;
-      if (createdAt && createdAt >= startOfToday) todayNew += 1;
-
-      const followAt = l.follow_up_at ? new Date(l.follow_up_at) : null;
-      if (followAt && followAt <= now && st !== "Booked" && st !== "Lost") {
-        // due or overdue followups (ignore closed)
-        followupsDue += 1;
-      }
-
-      // leaderboard (per agent)
-      const a = bumpAgent(l.agent_id ?? null);
-      a.total += 1;
-      if (st === "Booked") a.booked += 1;
-      if (createdAt && createdAt >= startOfToday) a.newToday += 1;
+    for (const r of statusRows ?? []) {
+      const s = (r as any).status as LeadStatus;
+      if (pipeline[s] != null) pipeline[s] += 1;
     }
 
-    const leaderboard = Array.from(byAgent.entries()).map(([agentId, v]) => ({
-      agentId,
-      label: agentId ? `Agent ${String(agentId).slice(0, 6)}` : "Unassigned",
-      total: v.total,
-      booked: v.booked,
-      newToday: v.newToday,
-    }));
+    // Agent leaderboard
+    // Get agents
+    const { data: agents, error: agentsErr } = await supabase
+      .from("profiles")
+      .select("id, full_name, email")
+      .eq("role", "agent");
+    if (agentsErr) return { ok: false, error: agentsErr.message };
 
-    // Sort: booked desc, then total desc
-    leaderboard.sort((a, b) => (b.booked - a.booked) || (b.total - a.total));
+    // Get leads needed fields
+    const { data: leadRows, error: leadErr } = await supabase
+      .from("leads")
+      .select("agent_id,status,created_at");
+    if (leadErr) return { ok: false, error: leadErr.message };
 
-    const data: DashboardData = {
-      totalLeads: rows.length,
-      todayNew,
-      followupsDue,
-      statusCounts,
-      leaderboard,
+    const agentMap = new Map<string, AgentRow>();
+
+    function label(a: any) {
+      const n = (a?.full_name ?? "").trim();
+      if (n) return n;
+      const e = (a?.email ?? "").trim();
+      if (e) return e.split("@")[0] || e;
+      return `Agent ${String(a?.id ?? "").slice(0, 8)}`;
+    }
+
+    for (const a of agents ?? []) {
+      agentMap.set(a.id, {
+        agent_id: a.id,
+        agent_name: label(a),
+        total_leads: 0,
+        booked: 0,
+        new_today: 0,
+      });
+    }
+
+    for (const l of leadRows ?? []) {
+      const aid = (l as any).agent_id as string | null;
+      if (!aid) continue;
+
+      const row = agentMap.get(aid);
+      if (!row) continue;
+
+      row.total_leads += 1;
+
+      if ((l as any).status === "Booked") row.booked += 1;
+
+      const createdAt = new Date((l as any).created_at);
+      const t0 = new Date(todayStart);
+      const t1 = new Date(tomorrowStart);
+      if (createdAt >= t0 && createdAt < t1) row.new_today += 1;
+    }
+
+    const agentsOut = Array.from(agentMap.values()).sort((a, b) => {
+      // booked priority, then total
+      if (b.booked !== a.booked) return b.booked - a.booked;
+      return b.total_leads - a.total_leads;
+    });
+
+    return {
+      ok: true,
+      data: {
+        kpis: { total_leads, today_new, followups_due, booked },
+        pipeline,
+        agents: agentsOut,
+      },
     };
-
-    return { ok: true, data };
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? "Unknown error" };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
   }
 }
