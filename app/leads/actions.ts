@@ -30,7 +30,6 @@ export type Lead = {
 
   status: LeadStatus;
 
-  // ✅ canonical fields
   agent_id: string | null;
   brand_id: string | null;
 
@@ -51,6 +50,14 @@ export type Lead = {
   cabin: string | null;
 };
 
+export type LeadActivity = {
+  id: string;
+  lead_id: string;
+  type: string;
+  message: string;
+  created_at: string;
+};
+
 type Ok<T> = { ok: true; data: T };
 type Fail = { ok: false; error: string };
 
@@ -61,9 +68,6 @@ function errMsg(e: unknown) {
 export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
   try {
     const supabase = await supabaseServer();
-
-    // ✅ agents = profiles table (role = agent)
-    // ✅ include email so UI fallback can show email if name missing
     const { data, error } = await supabase
       .from("profiles")
       .select("id,full_name,email,role")
@@ -80,7 +84,6 @@ export async function listAgentsAction(): Promise<Ok<Agent[]> | Fail> {
 export async function listBrandsAction(): Promise<Ok<Brand[]> | Fail> {
   try {
     const supabase = await supabaseServer();
-
     const { data, error } = await supabase
       .from("brands")
       .select("id,name")
@@ -125,13 +128,16 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
       cabin: payload.cabin ?? null,
     };
 
-    const { data, error } = await supabase
-      .from("leads")
-      .insert(insertRow)
-      .select("*")
-      .single();
-
+    const { data, error } = await supabase.from("leads").insert(insertRow).select("*").single();
     if (error) return { ok: false, error: error.message };
+
+    // optional: create activity
+    await supabase.from("lead_activities").insert({
+      lead_id: data.id,
+      type: "created",
+      message: "Lead created",
+    });
+
     return { ok: true, data: data as Lead };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
@@ -141,9 +147,7 @@ export async function createLeadAction(payload: Partial<Lead>): Promise<Ok<Lead>
 export async function moveLeadAction(args: { id: string; status: LeadStatus }): Promise<Ok<true> | Fail> {
   try {
     const supabase = await supabaseServer();
-
     const { error } = await supabase.from("leads").update({ status: args.status }).eq("id", args.id);
-
     if (error) return { ok: false, error: error.message };
     return { ok: true, data: true };
   } catch (e) {
@@ -154,10 +158,119 @@ export async function moveLeadAction(args: { id: string; status: LeadStatus }): 
 export async function assignLeadAction(args: { id: string; agent_id: string | null }): Promise<Ok<true> | Fail> {
   try {
     const supabase = await supabaseServer();
-
     const { error } = await supabase.from("leads").update({ agent_id: args.agent_id }).eq("id", args.id);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+}
+
+/* -------------------- NEW: Lead Details Actions -------------------- */
+
+export async function addLeadActivityAction(args: {
+  lead_id: string;
+  type: string;
+  message: string;
+}): Promise<Ok<true> | Fail> {
+  try {
+    const supabase = await supabaseServer();
+    const { error } = await supabase.from("lead_activities").insert({
+      lead_id: args.lead_id,
+      type: args.type,
+      message: args.message,
+    });
 
     if (error) return { ok: false, error: error.message };
+    return { ok: true, data: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+}
+
+export async function updateLeadStatusAction(args: {
+  id: string;
+  status: LeadStatus;
+}): Promise<Ok<true> | Fail> {
+  try {
+    const supabase = await supabaseServer();
+
+    const { error } = await supabase.from("leads").update({ status: args.status }).eq("id", args.id);
+    if (error) return { ok: false, error: error.message };
+
+    await supabase.from("lead_activities").insert({
+      lead_id: args.id,
+      type: "status",
+      message: `Status changed to ${args.status}`,
+    });
+
+    return { ok: true, data: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+}
+
+export async function updateLeadAgentAction(args: {
+  id: string;
+  agent_id: string | null;
+  agent_label?: string;
+}): Promise<Ok<true> | Fail> {
+  try {
+    const supabase = await supabaseServer();
+
+    const { error } = await supabase.from("leads").update({ agent_id: args.agent_id }).eq("id", args.id);
+    if (error) return { ok: false, error: error.message };
+
+    const label = args.agent_id ? (args.agent_label ?? "agent") : "Unassigned";
+    await supabase.from("lead_activities").insert({
+      lead_id: args.id,
+      type: "assign",
+      message: `Assigned to ${label}`,
+    });
+
+    return { ok: true, data: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+}
+
+export async function updateLeadFollowUpAction(args: {
+  id: string;
+  follow_up_at: string | null; // ISO string
+}): Promise<Ok<true> | Fail> {
+  try {
+    const supabase = await supabaseServer();
+
+    const { error } = await supabase.from("leads").update({ follow_up_at: args.follow_up_at }).eq("id", args.id);
+    if (error) return { ok: false, error: error.message };
+
+    await supabase.from("lead_activities").insert({
+      lead_id: args.id,
+      type: "followup",
+      message: args.follow_up_at ? `Follow-up set: ${args.follow_up_at}` : "Follow-up cleared",
+    });
+
+    return { ok: true, data: true };
+  } catch (e) {
+    return { ok: false, error: errMsg(e) };
+  }
+}
+
+export async function updateLeadNotesAction(args: {
+  id: string;
+  notes: string | null;
+}): Promise<Ok<true> | Fail> {
+  try {
+    const supabase = await supabaseServer();
+    const { error } = await supabase.from("leads").update({ notes: args.notes }).eq("id", args.id);
+    if (error) return { ok: false, error: error.message };
+
+    await supabase.from("lead_activities").insert({
+      lead_id: args.id,
+      type: "note",
+      message: "Notes updated",
+    });
+
     return { ok: true, data: true };
   } catch (e) {
     return { ok: false, error: errMsg(e) };
