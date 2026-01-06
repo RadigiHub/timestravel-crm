@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getDashboardDataAction } from "./actions";
@@ -44,11 +45,14 @@ export default async function DashboardPage() {
           <div className="mt-1 text-xs text-zinc-500">Created today</div>
         </div>
 
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <div className="text-xs text-zinc-500">Follow-ups Due</div>
-          <div className="mt-1 text-2xl font-semibold text-zinc-900">{kpis.followups_due}</div>
-          <div className="mt-1 text-xs text-zinc-500">Due today / overdue</div>
-        </div>
+        {/* ✅ Clickable Follow-ups Due card */}
+        <Link href="/followups" className="block">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm hover:bg-zinc-50">
+            <div className="text-xs text-zinc-500">Follow-ups Due</div>
+            <div className="mt-1 text-2xl font-semibold text-zinc-900">{kpis.followups_due}</div>
+            <div className="mt-1 text-xs text-zinc-500">Due today / overdue</div>
+          </div>
+        </Link>
 
         <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
           <div className="text-xs text-zinc-500">Booked</div>
