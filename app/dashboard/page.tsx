@@ -1,173 +1,107 @@
-import { getDashboardDataAction } from "./actions";
-import { supabaseServer } from "@/lib/supabase/server";
-
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function Card({
-  title,
-  value,
-  hint,
-}: {
-  title: string;
-  value: string | number;
-  hint?: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-      <div className="text-xs font-medium text-zinc-500">{title}</div>
-      <div className="mt-1 text-2xl font-semibold text-zinc-900">{value}</div>
-      {hint ? <div className="mt-1 text-xs text-zinc-500">{hint}</div> : null}
-    </div>
-  );
-}
+import { redirect } from "next/navigation";
+import { supabaseServer } from "@/lib/supabase/server";
+import { getDashboardDataAction } from "./actions";
 
 export default async function DashboardPage() {
-  const res = await getDashboardDataAction();
+  const supabase = await supabaseServer();
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) redirect("/login");
 
+  const res = await getDashboardDataAction();
   if (!res.ok) {
     return (
-      <div className="p-6">
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          Dashboard load failed: {res.error}
+      <div className="mx-auto max-w-6xl p-6">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+          <div className="text-lg font-semibold text-zinc-900">Dashboard Error</div>
+          <div className="mt-2 text-sm text-zinc-600">{res.error}</div>
         </div>
       </div>
     );
   }
 
-  const { totalLeads, todayNew, followupsDue, statusCounts, leaderboard } =
-    res.data;
-
-  // ✅ Always resolve agent names from profiles (agentId -> full_name)
-  const supabase = await supabaseServer();
-
-  const agentIds = Array.from(
-    new Set(
-      (leaderboard ?? [])
-        .map((x: any) => x.agentId)
-        .filter(Boolean) as string[]
-    )
-  );
-
-  let agentNameById = new Map<string, string>();
-
-  if (agentIds.length) {
-    const { data: agentsData } = await supabase
-      .from("profiles")
-      .select("id, full_name")
-      .in("id", agentIds);
-
-    agentNameById = new Map(
-      (agentsData ?? []).map((a: any) => [
-        a.id as string,
-        (a.full_name ?? "").toString(),
-      ])
-    );
-  }
-
-  const getAgentLabel = (row: any) => {
-    if (!row?.agentId) return "Unassigned";
-    const n = agentNameById.get(row.agentId);
-    if (n && n.trim().length) return n;
-    // fallback (but normally this won't show)
-    return row.label ?? `Agent ${String(row.agentId).slice(0, 6)}`;
-  };
+  const { kpis, pipeline, agents } = res.data;
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex flex-col gap-1">
-        <div className="text-2xl font-semibold text-zinc-900">Dashboard</div>
-        <div className="text-sm text-zinc-600">
-          Live KPIs — aaj ki performance aur pipeline overview.
+    <div className="mx-auto max-w-6xl p-6 space-y-6">
+      <div>
+        <div className="text-2xl font-bold text-zinc-900">Dashboard</div>
+        <div className="mt-1 text-sm text-zinc-600">Live KPIs — aaj ki performance aur pipeline overview.</div>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <div className="text-xs text-zinc-500">Total Leads</div>
+          <div className="mt-1 text-2xl font-semibold text-zinc-900">{kpis.total_leads}</div>
+        </div>
+
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <div className="text-xs text-zinc-500">Today New</div>
+          <div className="mt-1 text-2xl font-semibold text-zinc-900">{kpis.today_new}</div>
+          <div className="mt-1 text-xs text-zinc-500">Created today</div>
+        </div>
+
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <div className="text-xs text-zinc-500">Follow-ups Due</div>
+          <div className="mt-1 text-2xl font-semibold text-zinc-900">{kpis.followups_due}</div>
+          <div className="mt-1 text-xs text-zinc-500">Due today / overdue</div>
+        </div>
+
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
+          <div className="text-xs text-zinc-500">Booked</div>
+          <div className="mt-1 text-2xl font-semibold text-zinc-900">{kpis.booked}</div>
+          <div className="mt-1 text-xs text-zinc-500">Total booked</div>
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <Card title="Total Leads" value={totalLeads} />
-        <Card title="Today New" value={todayNew} hint="Created today" />
-        <Card
-          title="Follow-ups Due"
-          value={followupsDue}
-          hint="Due today / overdue"
-        />
-        <Card title="Booked" value={statusCounts["Booked"]} hint="Total booked" />
-      </div>
-
-      {/* Status Overview */}
+      {/* Pipeline */}
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-base font-semibold text-zinc-900">
-              Pipeline Status
-            </div>
-            <div className="text-sm text-zinc-600">
-              New → Contacted → Follow-Up → Booked/Lost
-            </div>
-          </div>
-        </div>
+        <div className="text-base font-semibold text-zinc-900">Pipeline Status</div>
+        <div className="mt-1 text-sm text-zinc-600">New → Contacted → Follow-Up → Booked/Lost</div>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-5">
-          <Card title="New" value={statusCounts["New"]} />
-          <Card title="Contacted" value={statusCounts["Contacted"]} />
-          <Card title="Follow-Up" value={statusCounts["Follow-Up"]} />
-          <Card title="Booked" value={statusCounts["Booked"]} />
-          <Card title="Lost" value={statusCounts["Lost"]} />
+        <div className="mt-4 grid gap-3 md:grid-cols-5">
+          {(["New", "Contacted", "Follow-Up", "Booked", "Lost"] as const).map((s) => (
+            <div key={s} className="rounded-2xl border border-zinc-200 bg-white p-4">
+              <div className="text-xs text-zinc-500">{s}</div>
+              <div className="mt-1 text-xl font-semibold text-zinc-900">{pipeline[s]}</div>
+            </div>
+          ))}
         </div>
       </div>
 
       {/* Agent Leaderboard */}
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-base font-semibold text-zinc-900">
-              Agent Leaderboard
-            </div>
-            <div className="text-sm text-zinc-600">
-              Booked priority, then total workload
-            </div>
-          </div>
-        </div>
+        <div className="text-base font-semibold text-zinc-900">Agent Leaderboard</div>
+        <div className="mt-1 text-sm text-zinc-600">Booked priority, then total workload</div>
 
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full text-left text-sm">
             <thead>
-              <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500">
-                <th className="py-2 pr-3">Agent</th>
-                <th className="py-2 pr-3">Total Leads</th>
-                <th className="py-2 pr-3">Booked</th>
-                <th className="py-2 pr-3">New Today</th>
+              <tr className="border-b border-zinc-200 text-xs text-zinc-500">
+                <th className="py-2 pr-4">Agent</th>
+                <th className="py-2 pr-4">Total Leads</th>
+                <th className="py-2 pr-4">Booked</th>
+                <th className="py-2 pr-4">New Today</th>
               </tr>
             </thead>
             <tbody>
-              {leaderboard.length ? (
-                leaderboard.map((a: any, idx: number) => (
-                  <tr
-                    key={a.agentId ? a.agentId : `unassigned-${idx}`}
-                    className="border-b border-zinc-100"
-                  >
-                    <td className="py-3 pr-3 font-medium text-zinc-900">
-                      {getAgentLabel(a)}
-                    </td>
-                    <td className="py-3 pr-3 text-zinc-700">{a.total}</td>
-                    <td className="py-3 pr-3 text-zinc-700">{a.booked}</td>
-                    <td className="py-3 pr-3 text-zinc-700">{a.newToday}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td className="py-3 text-zinc-600" colSpan={4}>
-                    No assigned leads yet.
-                  </td>
+              {agents.map((a) => (
+                <tr key={a.agent_id} className="border-b border-zinc-100">
+                  <td className="py-2 pr-4 font-medium text-zinc-900">{a.agent_name}</td>
+                  <td className="py-2 pr-4">{a.total_leads}</td>
+                  <td className="py-2 pr-4">{a.booked}</td>
+                  <td className="py-2 pr-4">{a.new_today}</td>
                 </tr>
-              )}
+              ))}
             </tbody>
           </table>
         </div>
 
         <div className="mt-3 text-xs text-zinc-500">
-          Next: hum yahan per “Conversion %”, “Avg time to Contact”, aur “Follow-up
-          overdue list” bhi add kar sakte hain.
+          Next: conversion %, avg time to contact, aur “follow-up overdue list”.
         </div>
       </div>
     </div>
