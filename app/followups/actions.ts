@@ -1,123 +1,140 @@
 "use server";
 
 import { supabaseServer } from "@/lib/supabase/server";
-import type { LeadStatus } from "../leads/actions";
 
 type Ok<T> = { ok: true; data: T };
-type Fail = { ok: false; error: string };
+type Err = { ok: false; error: string };
+type Res<T> = Ok<T> | Err;
 
-function errMsg(e: unknown) {
-  return e instanceof Error ? e.message : "Unknown error";
+function safeError(e: unknown) {
+  if (e instanceof Error) return e.message;
+  return "Unknown error";
 }
 
-export type FollowupLeadRow = {
-  id: string;
-  full_name: string | null;
-  phone: string | null;
-  email: string | null;
-  source: string | null;
-  notes: string | null;
-
-  status: LeadStatus;
-  follow_up_at: string | null;
-  created_at: string;
-
-  agent_id: string | null;
-  agent_name: string | null;
-};
-
-function startOfTomorrowISO() {
-  const d = new Date();
-  d.setHours(24, 0, 0, 0);
-  return d.toISOString();
+function addDays(date: Date, days: number) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
 }
 
-export async function listFollowupsDueAction(): Promise<Ok<FollowupLeadRow[]> | Fail> {
+/**
+ * List followups due: due today + overdue.
+ * Excludes Booked/Lost.
+ */
+export async function listFollowupsDueAction(): Promise<
+  Res<{
+    total: number;
+    overdue: number;
+    items: any[];
+  }>
+> {
   try {
     const supabase = await supabaseServer();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return { ok: false, error: "Not authenticated" };
 
-    const tomorrowStart = startOfTomorrowISO();
+    const now = new Date();
+    const nowIso = now.toISOString();
 
-    // due today OR overdue: follow_up_at < tomorrow 00:00
-    // exclude Booked/Lost because follow-ups irrelevant there
+    // follow_up_at <= now AND not booked/lost AND follow_up_at is not null
     const { data, error } = await supabase
       .from("leads")
-      .select("id,full_name,phone,email,source,notes,status,follow_up_at,created_at,agent_id")
+      .select(
+        "id, full_name, phone, email, source, status, notes, follow_up_at, agent_id, brand_id, created_at"
+      )
       .not("follow_up_at", "is", null)
-      .lt("follow_up_at", tomorrowStart)
-      .neq("status", "Booked")
-      .neq("status", "Lost")
-      .order("follow_up_at", { ascending: true })
-      .limit(200);
+      .lte("follow_up_at", nowIso)
+      .not("status", "in", '("Booked","Lost")')
+      .order("follow_up_at", { ascending: true });
 
     if (error) return { ok: false, error: error.message };
 
-    const rows = data ?? [];
+    const items = data ?? [];
+    const overdue = items.filter((x: any) => {
+      const t = x?.follow_up_at ? new Date(x.follow_up_at).getTime() : 0;
+      return t && t < now.getTime();
+    }).length;
 
-    // agent names
-    const agentIds = Array.from(new Set(rows.map((r: any) => r.agent_id).filter(Boolean)));
-    let agentMap = new Map<string, string>();
+    return {
+      ok: true,
+      data: { total: items.length, overdue, items },
+    };
+  } catch (e) {
+    return { ok: false, error: safeError(e) };
+  }
+}
 
-    if (agentIds.length) {
-      const { data: agents, error: aErr } = await supabase
-        .from("profiles")
-        .select("id,full_name,email")
-        .in("id", agentIds);
+/**
+ * Snooze follow-up by +1 day (keeps same time).
+ * Also (best-effort) logs timeline in lead_activities if table exists.
+ */
+export async function snoozeFollowupTomorrowAction(leadId: string): Promise<Res<true>> {
+  try {
+    const supabase = await supabaseServer();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return { ok: false, error: "Not authenticated" };
 
-      if (!aErr && agents) {
-        for (const a of agents as any[]) {
-          const name = (a.full_name ?? "").trim();
-          const email = (a.email ?? "").trim();
-          agentMap.set(a.id, name || (email ? email.split("@")[0] : "") || `Agent ${String(a.id).slice(0, 8)}`);
-        }
-      }
+    // get current follow_up_at
+    const { data: row, error: readErr } = await supabase
+      .from("leads")
+      .select("id, follow_up_at")
+      .eq("id", leadId)
+      .single();
+
+    if (readErr) return { ok: false, error: readErr.message };
+
+    const current = row?.follow_up_at ? new Date(row.follow_up_at) : new Date();
+    const next = addDays(current, 1);
+
+    const { error: upErr } = await supabase
+      .from("leads")
+      .update({ follow_up_at: next.toISOString() })
+      .eq("id", leadId);
+
+    if (upErr) return { ok: false, error: upErr.message };
+
+    // Best-effort timeline log (won't break if schema differs)
+    try {
+      await supabase.from("lead_activities").insert([
+        {
+          lead_id: leadId,
+          type: "followup",
+          message: `Follow-up snoozed to ${next.toISOString()}`,
+        },
+      ]);
+    } catch {
+      // ignore logging failures
     }
 
-    const out: FollowupLeadRow[] = rows.map((r: any) => ({
-      id: r.id,
-      full_name: r.full_name ?? null,
-      phone: r.phone ?? null,
-      email: r.email ?? null,
-      source: r.source ?? null,
-      notes: r.notes ?? null,
-      status: (r.status ?? "New") as LeadStatus,
-      follow_up_at: r.follow_up_at ?? null,
-      created_at: r.created_at,
-      agent_id: r.agent_id ?? null,
-      agent_name: r.agent_id ? agentMap.get(r.agent_id) ?? null : null,
-    }));
-
-    return { ok: true, data: out };
+    return { ok: true, data: true };
   } catch (e) {
-    return { ok: false, error: errMsg(e) };
+    return { ok: false, error: safeError(e) };
   }
 }
 
-export async function setFollowupAtAction(args: { id: string; follow_up_at: string | null }): Promise<Ok<true> | Fail> {
+/**
+ * Quick status update from Follow-ups table (optional but handy).
+ */
+export async function setLeadStatusAction(leadId: string, status: string): Promise<Res<true>> {
   try {
     const supabase = await supabaseServer();
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) return { ok: false, error: "Not authenticated" };
 
-    const { error } = await supabase
-      .from("leads")
-      .update({ follow_up_at: args.follow_up_at })
-      .eq("id", args.id);
-
+    const { error } = await supabase.from("leads").update({ status }).eq("id", leadId);
     if (error) return { ok: false, error: error.message };
+
+    // Best-effort timeline log
+    try {
+      await supabase.from("lead_activities").insert([
+        { lead_id: leadId, type: "status", message: `Status set to ${status}` },
+      ]);
+    } catch {
+      // ignore
+    }
+
     return { ok: true, data: true };
   } catch (e) {
-    return { ok: false, error: errMsg(e) };
-  }
-}
-
-export async function updateLeadStatusAction(args: { id: string; status: LeadStatus }): Promise<Ok<true> | Fail> {
-  try {
-    const supabase = await supabaseServer();
-
-    const { error } = await supabase.from("leads").update({ status: args.status }).eq("id", args.id);
-
-    if (error) return { ok: false, error: error.message };
-    return { ok: true, data: true };
-  } catch (e) {
-    return { ok: false, error: errMsg(e) };
+    return { ok: false, error: safeError(e) };
   }
 }
