@@ -1,3 +1,17 @@
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // ✅ Allow webhook endpoint without auth
+  if (pathname.startsWith("/api/leads/intake")) {
+    return NextResponse.next();
+  }
+
+  // ... baqi tumhara existing auth logic ...
+}
+
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
