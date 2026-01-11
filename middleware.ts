@@ -1,21 +1,32 @@
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
-
-export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-
-  // ✅ Allow webhook endpoint without auth
-  if (pathname.startsWith("/api/leads/intake")) {
-    return NextResponse.next();
-  }
-
-  // ... baqi tumhara existing auth logic ...
-}
-
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  /**
+   * ✅ PUBLIC ROUTES (NO AUTH)
+   * - Webhook intake must NOT redirect to /login
+   */
+  if (pathname.startsWith("/api/leads/intake")) {
+    return NextResponse.next();
+  }
+
+  // Allow Next.js internals & static files
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon.ico") ||
+    pathname.startsWith("/public")
+  ) {
+    return NextResponse.next();
+  }
+
+  // Allow login page itself
+  if (pathname.startsWith("/login")) {
+    return NextResponse.next();
+  }
+
+  // Prepare response for Supabase SSR
   const res = NextResponse.next();
 
   const supabase = createServerClient(
@@ -35,33 +46,28 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  const { data } = await supabase.auth.getUser();
-  const user = data.user;
+  // Check session
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  const pathname = req.nextUrl.pathname;
-
-  // Public routes
-  const isLogin = pathname.startsWith("/login");
-
-  // Protected routes (abhi sirf dashboard)
-  const isProtected = pathname.startsWith("/dashboard");
-
-  if (!user && isProtected) {
+  // If no session -> redirect to login
+  if (!session) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
 
-  if (user && isLogin) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
-  }
-
   return res;
 }
 
+/**
+ * ✅ Apply middleware to everything except:
+ * - _next static
+ * - images/static
+ * - favicon
+ */
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
