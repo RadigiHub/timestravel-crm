@@ -81,7 +81,6 @@ export async function GET(req: Request) {
  * ✅ 2) Webhook receiver (Meta will send leadgen events here)
  */
 export async function POST(req: Request) {
-  let rawBody = "";
   try {
     // ✅ Read envs at request-time (so Vercel build doesn't fail)
     const SUPABASE_URL = getEnv("SUPABASE_URL");
@@ -91,7 +90,7 @@ export async function POST(req: Request) {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    rawBody = await req.text();
+    const rawBody = await req.text();
 
     // ✅ Verify signature (Meta security)
     const signature256 = req.headers.get("x-hub-signature-256");
@@ -118,7 +117,8 @@ export async function POST(req: Request) {
 
         // ✅ Fetch full lead details from Graph API
         const lead = await fetchLeadDetails(leadgenId, META_PAGE_ACCESS_TOKEN);
-        const normalized = normalizeFieldData(lead.field_data || []);
+        const fieldData = (lead.field_data || []) as FieldDataItem[];
+        const normalized = normalizeFieldData(fieldData);
 
         const fullName =
           normalized.full_name ||
@@ -127,7 +127,6 @@ export async function POST(req: Request) {
           "Meta Lead"; // fallback (because full_name is NOT NULL in your DB)
 
         // ✅ Map to your existing leads schema
-        // Your table has: meta_lead_id (text), full_name (not null), status_id (FK, not null), details (jsonb)
         const payload: any = {
           meta_lead_id: String(lead.id),
           full_name: fullName,
@@ -139,11 +138,18 @@ export async function POST(req: Request) {
           // FK to lead_statuses(id) — you have "new"
           status_id: "new",
 
-          // optional (your table has defaults too)
+          // optional
           priority: "warm",
 
-          // Store everything else in details jsonb
+          /**
+           * ✅ IMPORTANT: details me field_data add (SQL trigger mapping easy ho jaye)
+           * - details.field_data = Meta format array
+           * - details.normalized = easy key/value
+           */
           details: {
+            field_data: fieldData, // ✅ for SQL mapping trigger
+            normalized, // ✅ optional convenience
+
             created_time: lead.created_time || null,
             form_id: formId || lead.form_id || null,
             page_id: pageId || null,
@@ -153,13 +159,11 @@ export async function POST(req: Request) {
             campaign_name: lead.campaign_name || null,
             platform: lead.platform || null,
 
-            raw_field_data: lead.field_data || null,
             raw_payload: lead || null,
           },
         };
 
-        // If you want created_at to match Meta created_time:
-        // (only do this if your "created_at" column exists and is writable)
+        // If you want created_at to match Meta created_time (optional)
         if (lead.created_time) {
           payload.created_at = new Date(lead.created_time).toISOString();
         }
