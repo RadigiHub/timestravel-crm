@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { FollowupLeadRow } from "../actions";
 import { setFollowupAtAction, updateLeadStatusAction } from "../actions";
+import { logActivityAction } from "@/app/activities/actions";
 
 function fmt(dt: string | null) {
   if (!dt) return "—";
@@ -30,7 +31,11 @@ function addDaysKeepTime(iso: string | null, days: number) {
   return d.toISOString();
 }
 
-export default function FollowupsClient({ initial }: { initial: { items: FollowupLeadRow[]; total: number; overdue: number } }) {
+export default function FollowupsClient({
+  initial,
+}: {
+  initial: { items: FollowupLeadRow[]; total: number; overdue: number };
+}) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -39,19 +44,42 @@ export default function FollowupsClient({ initial }: { initial: { items: Followu
   const total = initial?.total ?? 0;
   const overdue = initial?.overdue ?? 0;
 
-  const statusOptions = useMemo(() => ["New", "Contacted", "Follow-Up", "Booked", "Lost"], []);
+  const statusOptions = useMemo(
+    () => ["New", "Contacted", "Follow-Up", "Booked", "Lost"],
+    []
+  );
 
-  const onOpen = (id: string) => {
-    router.push(`/leads/${id}`);
+  const onOpen = async (lead: FollowupLeadRow) => {
+    setErr(null);
+    // Fire-and-forget style (but awaited to be safe) — doesn't block navigation much.
+    await logActivityAction({
+      leadId: lead.id,
+      type: "lead_opened",
+      message: "Opened from follow-ups list",
+    });
+
+    router.push(`/leads/${lead.id}`);
   };
 
   const onSnoozeTomorrow = async (lead: FollowupLeadRow) => {
     setErr(null);
     setBusyId(lead.id);
+
     const nextIso = addDaysKeepTime(lead.follow_up_at, 1);
+
     const res = await setFollowupAtAction(lead.id, nextIso);
+    if (!res.ok) {
+      setBusyId(null);
+      return setErr(res.error);
+    }
+
+    await logActivityAction({
+      leadId: lead.id,
+      type: "followup_snoozed",
+      message: "Snoozed to tomorrow",
+    });
+
     setBusyId(null);
-    if (!res.ok) return setErr(res.error);
     router.refresh();
   };
 
@@ -67,20 +95,42 @@ export default function FollowupsClient({ initial }: { initial: { items: Followu
     }
 
     // optional: keep status as Contacted if currently New
-    const nextStatus = lead.status === "New" ? "Contacted" : lead.status ?? "Contacted";
-    const r2 = await updateLeadStatusAction(lead.id, nextStatus);
-    setBusyId(null);
+    const nextStatus =
+      lead.status === "New" ? "Contacted" : lead.status ?? "Contacted";
 
-    if (!r2.ok) return setErr(r2.error);
+    const r2 = await updateLeadStatusAction(lead.id, nextStatus);
+    if (!r2.ok) {
+      setBusyId(null);
+      return setErr(r2.error);
+    }
+
+    await logActivityAction({
+      leadId: lead.id,
+      type: "followup_done",
+      message: "Follow-up marked done",
+    });
+
+    setBusyId(null);
     router.refresh();
   };
 
-  const onStatusChange = async (leadId: string, status: string) => {
+  const onStatusChange = async (lead: FollowupLeadRow, status: string) => {
     setErr(null);
-    setBusyId(leadId);
-    const res = await updateLeadStatusAction(leadId, status);
+    setBusyId(lead.id);
+
+    const res = await updateLeadStatusAction(lead.id, status);
+    if (!res.ok) {
+      setBusyId(null);
+      return setErr(res.error);
+    }
+
+    await logActivityAction({
+      leadId: lead.id,
+      type: "status_changed",
+      message: `Status changed to ${status}`,
+    });
+
     setBusyId(null);
-    if (!res.ok) return setErr(res.error);
     router.refresh();
   };
 
@@ -99,21 +149,45 @@ export default function FollowupsClient({ initial }: { initial: { items: Followu
     return `tel:${digits}`;
   };
 
+  const onWhatsAppClick = async (lead: FollowupLeadRow) => {
+    setErr(null);
+    await logActivityAction({
+      leadId: lead.id,
+      type: "whatsapp_clicked",
+      message: "WhatsApp clicked from follow-ups",
+    });
+  };
+
+  const onCallClick = async (lead: FollowupLeadRow) => {
+    setErr(null);
+    await logActivityAction({
+      leadId: lead.id,
+      type: "call_clicked",
+      message: "Call clicked from follow-ups",
+    });
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-lg font-semibold text-zinc-900">Follow-ups Due</div>
-            <div className="mt-1 text-sm text-zinc-600">Due today + overdue (Booked/Lost excluded)</div>
+            <div className="text-lg font-semibold text-zinc-900">
+              Follow-ups Due
+            </div>
+            <div className="mt-1 text-sm text-zinc-600">
+              Due today + overdue (Booked/Lost excluded)
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
             <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs text-zinc-700">
-              Total: <span className="font-semibold text-zinc-900">{total}</span>
+              Total:{" "}
+              <span className="font-semibold text-zinc-900">{total}</span>
             </div>
             <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs text-zinc-700">
-              Overdue: <span className="font-semibold text-zinc-900">{overdue}</span>
+              Overdue:{" "}
+              <span className="font-semibold text-zinc-900">{overdue}</span>
             </div>
             <a
               href="/leads"
@@ -125,7 +199,9 @@ export default function FollowupsClient({ initial }: { initial: { items: Followu
         </div>
 
         {err ? (
-          <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{err}</div>
+          <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {err}
+          </div>
         ) : null}
       </div>
 
@@ -161,22 +237,30 @@ export default function FollowupsClient({ initial }: { initial: { items: Followu
                   return (
                     <tr key={lead.id} className="border-b border-zinc-100 align-top">
                       <td className="py-3 pr-4">
-                        <div className="font-medium text-zinc-900">{lead.full_name ?? "—"}</div>
+                        <div className="font-medium text-zinc-900">
+                          {lead.full_name ?? "—"}
+                        </div>
                         <div className="text-xs text-zinc-600">
                           {lead.phone ?? "—"} • {lead.email ?? "—"}
                         </div>
-                        {lead.notes ? <div className="mt-1 text-xs text-zinc-500 line-clamp-1">{lead.notes}</div> : null}
+                        {lead.notes ? (
+                          <div className="mt-1 text-xs text-zinc-500 line-clamp-1">
+                            {lead.notes}
+                          </div>
+                        ) : null}
                       </td>
 
                       <td className="py-3 pr-4">
-                        <div className="text-sm text-zinc-900">{lead.agent_id ?? "—"}</div>
+                        <div className="text-sm text-zinc-900">
+                          {lead.agent_id ?? "—"}
+                        </div>
                       </td>
 
                       <td className="py-3 pr-4">
                         <select
                           disabled={isBusy}
                           value={lead.status ?? "New"}
-                          onChange={(e) => onStatusChange(lead.id, e.target.value)}
+                          onChange={(e) => onStatusChange(lead, e.target.value)}
                           className="h-9 w-[140px] rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 outline-none"
                         >
                           {statusOptions.map((s) => (
@@ -188,23 +272,33 @@ export default function FollowupsClient({ initial }: { initial: { items: Followu
 
                         {od > 0 ? (
                           <div className="mt-2 inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] text-zinc-700">
-                            Overdue by <span className="ml-1 font-semibold">{od}</span> day(s)
+                            Overdue by{" "}
+                            <span className="ml-1 font-semibold">{od}</span>{" "}
+                            day(s)
                           </div>
                         ) : null}
                       </td>
 
                       <td className="py-3 pr-4">
-                        <div className="text-sm text-zinc-900">{fmt(lead.follow_up_at)}</div>
+                        <div className="text-sm text-zinc-900">
+                          {fmt(lead.follow_up_at)}
+                        </div>
                       </td>
 
                       <td className="py-3 pr-4">
-                        <div className="text-sm text-zinc-900">{lead.source ?? "—"}</div>
+                        <div className="text-sm text-zinc-900">
+                          {lead.source ?? "—"}
+                        </div>
                       </td>
 
                       <td className="py-3 pr-4">
-                        <div className={`flex flex-wrap gap-2 ${isBusy ? "opacity-60 pointer-events-none" : ""}`}>
+                        <div
+                          className={`flex flex-wrap gap-2 ${
+                            isBusy ? "opacity-60 pointer-events-none" : ""
+                          }`}
+                        >
                           <button
-                            onClick={() => onOpen(lead.id)}
+                            onClick={() => onOpen(lead)}
                             className="rounded-xl bg-black px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
                           >
                             Open
@@ -214,6 +308,7 @@ export default function FollowupsClient({ initial }: { initial: { items: Followu
                             <a
                               href={wa}
                               target="_blank"
+                              onClick={() => onWhatsAppClick(lead)}
                               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
                             >
                               WhatsApp
@@ -223,6 +318,7 @@ export default function FollowupsClient({ initial }: { initial: { items: Followu
                           {call ? (
                             <a
                               href={call}
+                              onClick={() => onCallClick(lead)}
                               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
                             >
                               Call
@@ -244,7 +340,11 @@ export default function FollowupsClient({ initial }: { initial: { items: Followu
                           </button>
                         </div>
 
-                        {isBusy ? <div className="mt-2 text-xs text-zinc-500">Saving…</div> : null}
+                        {isBusy ? (
+                          <div className="mt-2 text-xs text-zinc-500">
+                            Saving…
+                          </div>
+                        ) : null}
                       </td>
                     </tr>
                   );
@@ -255,7 +355,8 @@ export default function FollowupsClient({ initial }: { initial: { items: Followu
         </div>
 
         <div className="mt-3 text-xs text-zinc-500">
-          Next: Agent name show by joining profiles table + Snooze 3 days / 1 week + auto-log WhatsApp/Call clicks.
+          Next: Agent name show by joining profiles table + Snooze 3 days / 1
+          week + auto-log WhatsApp/Call clicks.
         </div>
       </div>
     </div>
